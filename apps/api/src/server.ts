@@ -1,0 +1,57 @@
+import Fastify from 'fastify';
+import cors from '@fastify/cors';
+import {
+    fastifyTRPCPlugin,
+    type FastifyTRPCPluginOptions,
+} from '@trpc/server/adapters/fastify';
+import { createContext } from './trpc/context.js';
+import { appRouter, type AppRouter } from './routers/index.js';
+
+const PORT = Number(process.env.API_PORT) || 3001;
+
+async function main() {
+    const fastify = Fastify({
+        logger: {
+            transport: {
+                target: 'pino-pretty',
+                options: {
+                    translateTime: 'HH:MM:ss Z',
+                    ignore: 'pid,hostname',
+                },
+            },
+        },
+    });
+
+    // CORS — allow frontend origin
+    await fastify.register(cors, {
+        origin: process.env.APP_URL || 'http://localhost:3000',
+        credentials: true,
+    });
+
+    // Health check
+    fastify.get('/health', async () => {
+        return { status: 'ok', timestamp: new Date().toISOString() };
+    });
+
+    // tRPC adapter
+    await fastify.register(fastifyTRPCPlugin, {
+        prefix: '/trpc',
+        trpcOptions: {
+            router: appRouter,
+            createContext,
+        } satisfies FastifyTRPCPluginOptions<AppRouter>['trpcOptions'],
+    });
+
+    // Start server
+    try {
+        await fastify.listen({ port: PORT, host: '0.0.0.0' });
+        fastify.log.info(`🚀 TaxEase API running at http://localhost:${PORT}`);
+        fastify.log.info(`📋 Health check: http://localhost:${PORT}/health`);
+        fastify.log.info(`🔌 tRPC endpoint: http://localhost:${PORT}/trpc`);
+    } catch (err) {
+        fastify.log.error(err);
+        process.exit(1);
+    }
+}
+
+main();

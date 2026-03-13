@@ -1,0 +1,29 @@
+{
+    "name": "@taxease/worker",
+    "version": "0.1.0",
+    "private": true,
+    "scripts": {
+        "dev": "tsx watch src/worker.ts",
+        "build": "tsc",
+        "start": "node dist/worker.js",
+        "lint": "eslint src/ --ext .ts",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "bullmq": "^5.30.0",
+        "ioredis": "^5.4.0",
+        "@prisma/client": "^6.4.0",
+        "@aws-sdk/client-s3": "^3.700.0",
+        "@taxease/shared": "workspace:*",
+        "pino": "^9.6.0",
+        "pino-pretty": "^13.0.0",
+        "undici": "^7.0.0"
+    },
+    "devDependencies": {
+        "tsx": "^4.19.0",
+        "typescript": "^5.7.0",
+        "@types/node": "^22.0.0",
+        "eslint": "^9.0.0",
+        "prisma": "^6.4.0"
+    }
+}

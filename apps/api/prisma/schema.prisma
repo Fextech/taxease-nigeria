@@ -1,0 +1,278 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum TaxYearStatus {
+  ACTIVE
+  LOCKED
+  FILED
+}
+
+enum StatementStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  ANNOTATED
+  ERROR
+}
+
+enum TaxableStatus {
+  YES
+  NO
+  PARTIAL
+}
+
+enum TaxCategory {
+  EMPLOYMENT
+  BUSINESS
+  RENTAL
+  INVESTMENT
+  FOREIGN
+  EXEMPT
+  UNCLASSIFIED
+}
+
+enum AnnotationStatus {
+  UNANNOTATED
+  IN_PROGRESS
+  COMPLETE
+  FLAGGED
+}
+
+enum UserPlan {
+  FREE
+  PRO
+  BUSINESS
+}
+
+enum DelegationRole {
+  ACCOUNTANT
+  VIEWER
+}
+
+// ─────────────────────────────────────────────
+// MODELS
+// ─────────────────────────────────────────────
+
+model User {
+  id                   String       @id @default(cuid())
+  email                String       @unique
+  emailVerified        DateTime?
+  name                 String?
+  image                String?
+  password             String?      // Hashed; null for OAuth-only users
+  phone                String?
+  professionalCategory String?
+  stateOfResidence     String?      // Nigerian state for IRS portal link
+  plan                 UserPlan     @default(FREE)
+
+  // MFA (TOTP)
+  mfaEnabled           Boolean      @default(false)
+  totpSecret           String?      // Encrypted TOTP secret
+  totpVerified         Boolean      @default(false)
+
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+  deletedAt            DateTime?
+
+  accounts             Account[]
+  sessions             Session[]
+  workspaces           Workspace[]
+  delegationsGiven     Delegation[] @relation("DelegationOwner")
+  delegationsReceived  Delegation[] @relation("DelegationDelegate")
+  auditLogs            AuditLog[]
+  subscription         Subscription?
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model PasswordResetToken {
+  id      String   @id @default(cuid())
+  email   String
+  token   String   @unique
+  expires DateTime
+
+  @@index([email])
+}
+
+model Workspace {
+  id                 String          @id @default(cuid())
+  userId             String
+  taxYear            Int
+  status             TaxYearStatus   @default(ACTIVE)
+  totalIncome        BigInt          @default(0)   // Stored in kobo
+  totalTaxableIncome BigInt          @default(0)
+  totalTaxLiability  BigInt          @default(0)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  user               User            @relation(fields: [userId], references: [id])
+  statements         Statement[]
+  delegations        Delegation[]
+
+  @@unique([userId, taxYear])
+  @@index([userId])
+}
+
+model Statement {
+  id               String          @id @default(cuid())
+  workspaceId      String
+  month            Int             // 1-12
+  bankName         String?
+  originalFilename String
+  s3Key            String
+  mimeType         String
+  fileHash         String?         // For duplicate detection
+  parseStatus      StatementStatus @default(UPLOADED)
+  confidenceScore  Float?
+  rowCount         Int?
+  errorMessage     String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id])
+  transactions     Transaction[]
+
+  @@unique([workspaceId, month])
+  @@index([workspaceId])
+}
+
+model Transaction {
+  id              String      @id @default(cuid())
+  statementId     String
+  transactionDate DateTime
+  valueDate       DateTime?
+  description     String
+  debitAmount     BigInt      @default(0)   // Stored in kobo
+  creditAmount    BigInt      @default(0)
+  balance         BigInt?
+  reference       String?
+  channel         String?
+  confidence      Float?
+  isManualEntry   Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  statement       Statement   @relation(fields: [statementId], references: [id])
+  annotation      Annotation?
+
+  @@index([statementId])
+  @@index([transactionDate])
+}
+
+model Annotation {
+  id                String           @id @default(cuid())
+  transactionId     String           @unique
+  taxableStatus     TaxableStatus    @default(NO)
+  taxableAmount     BigInt?          // In kobo; null = full credit amount
+  taxCategory       TaxCategory      @default(UNCLASSIFIED)
+  reason            String?
+  reliefType        String?
+  computedLiability BigInt           @default(0)
+  status            AnnotationStatus @default(UNANNOTATED)
+  notes             String?
+  supportDocS3Key   String?          // Supporting document
+  aiSuggested       Boolean          @default(false)
+  aiConfidence      Float?
+  annotatedBy       String?          // userId
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  transaction       Transaction      @relation(fields: [transactionId], references: [id])
+}
+
+model Delegation {
+  id              String         @id @default(cuid())
+  workspaceId     String
+  ownerId         String
+  delegateId      String
+  role            DelegationRole
+  expiresAt       DateTime?
+  createdAt       DateTime       @default(now())
+
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id])
+  owner           User           @relation("DelegationOwner", fields: [ownerId], references: [id])
+  delegate        User           @relation("DelegationDelegate", fields: [delegateId], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String
+  entityType  String
+  entityId    String
+  action      String
+  oldValue    Json?
+  newValue    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model Subscription {
+  id                       String   @id @default(cuid())
+  userId                   String   @unique
+  plan                     UserPlan
+  status                   String
+  paystackCustomerCode     String?
+  paystackSubscriptionCode String?
+  billingCycleStart        DateTime?
+  billingCycleEnd          DateTime?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  user                     User     @relation(fields: [userId], references: [id])
+}

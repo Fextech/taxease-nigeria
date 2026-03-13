@@ -1,0 +1,339 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TaxEase Nigeria - Self Assessment Report</title>
+    <style>
+      :root {
+        --ink: #1f2937;
+        --muted: #6b7280;
+        --border: #e5e7eb;
+        --soft: #f8fafc;
+        --accent: #0f766e;
+        --accent-soft: #ecfdf5;
+        --table-head: #f1f5f9;
+        --page-padding: 28mm;
+      }
+
+      @page {
+        size: A4;
+        margin: 18mm;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+        color: var(--ink);
+        margin: 0;
+        background: white;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+      }
+
+      .page {
+        padding: var(--page-padding);
+      }
+
+      .topline {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+        margin-bottom: 10px;
+      }
+
+      h1 {
+        font-family: "Source Serif 4", "Times New Roman", serif;
+        font-size: 32px;
+        margin: 0 0 8px 0;
+        color: var(--accent);
+      }
+
+      .subtitle {
+        font-size: 14px;
+        color: var(--muted);
+        margin-bottom: 24px;
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px 24px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 16px;
+        background: var(--soft);
+        margin-bottom: 24px;
+      }
+
+      .summary-item {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px dashed var(--border);
+        padding-bottom: 6px;
+      }
+
+      .summary-item:last-child,
+      .summary-item:nth-last-child(2) {
+        border-bottom: none;
+      }
+
+      .label {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+
+      .value {
+        font-size: 15px;
+        font-weight: 600;
+        color: var(--ink);
+      }
+
+      .month-section {
+        margin-top: 28px;
+        page-break-inside: avoid;
+      }
+
+      .month-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 10px;
+      }
+
+      .month-title {
+        font-family: "Source Serif 4", "Times New Roman", serif;
+        font-size: 20px;
+        margin: 0;
+      }
+
+      .month-stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        margin-bottom: 12px;
+      }
+
+      .stat-card {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 10px 12px;
+        background: var(--accent-soft);
+      }
+
+      .stat-label {
+        font-size: 11px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        margin-bottom: 4px;
+      }
+
+      .stat-value {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--accent);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 6px;
+      }
+
+      thead th {
+        background: var(--table-head);
+        text-align: left;
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+      }
+
+      tbody td {
+        font-size: 13px;
+        padding: 8px 10px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+
+      .table-note {
+        font-size: 11px;
+        color: var(--muted);
+        margin-bottom: 4px;
+      }
+
+      .footer {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 32px;
+        padding-top: 12px;
+        border-top: 1px solid var(--border);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .wordmark {
+        color: var(--accent);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      @media print {
+        .page {
+          padding: 0;
+        }
+      }
+
+      @media (max-width: 800px) {
+        .summary-grid {
+          grid-template-columns: 1fr;
+        }
+        .month-stats {
+          grid-template-columns: 1fr 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="topline">Created with TaxEase Nigeria</div>
+      <h1>{{taxYear}} Self Assessment</h1>
+      <div class="subtitle">Tax Year: {{taxYear}} | Generated for: {{name}}</div>
+
+      <section class="summary-grid">
+        <div class="summary-item">
+          <span class="label">Name</span>
+          <span class="value">{{name}}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">Professional Category</span>
+          <span class="value">{{professionalCategory}}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">TIN</span>
+          <span class="value">{{tin}}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">Total Inflow</span>
+          <span class="value">NGN {{totalInflow}}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">Gross Income</span>
+          <span class="value">NGN {{grossIncome}}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">Other Expenses</span>
+          <span class="value">NGN {{otherExpenses}}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">Direct Business Expenses</span>
+          <span class="value">NGN {{directBusinessExpenses}}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">Taxable Income</span>
+          <span class="value">NGN {{taxableIncome}}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">Total Relief</span>
+          <span class="value">NGN {{totalRelief}}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">Tax Liability</span>
+          <span class="value">NGN {{taxLiability}}</span>
+        </div>
+      </section>
+
+      <!-- Month Section: January (sample) -->
+      <section class="month-section">
+        <div class="month-header">
+          <h2 class="month-title">{{monthName}}</h2>
+        </div>
+        <div class="month-stats">
+          <div class="stat-card">
+            <div class="stat-label">Total Inflow</div>
+            <div class="stat-value">NGN {{monthTotalInflow}}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Gross Income</div>
+            <div class="stat-value">NGN {{monthGrossIncome}}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Direct Business Expenses</div>
+            <div class="stat-value">NGN {{monthDirectBusinessExpenses}}</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Other Expenses</div>
+            <div class="stat-value">NGN {{monthOtherExpenses}}</div>
+          </div>
+        </div>
+
+        <div class="table-note">Table focuses on income and direct business expenses only.</div>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 14%">Date</th>
+              <th>Description</th>
+              <th style="width: 16%">Credit/Debit</th>
+              <th style="width: 12%">Taxable?</th>
+              <th style="width: 28%">Reason / Justification</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>{{date}}</td>
+              <td>{{description}}</td>
+              <td>{{creditDebit}}</td>
+              <td>{{taxable}}</td>
+              <td>{{reason}}</td>
+            </tr>
+            <tr>
+              <td>05 Jan 2025</td>
+              <td>Website development retainer</td>
+              <td>+ NGN 350,000</td>
+              <td>Yes</td>
+              <td>Business income for January</td>
+            </tr>
+            <tr>
+              <td>11 Jan 2025</td>
+              <td>Design tooling subscription</td>
+              <td>- NGN 35,000</td>
+              <td>No</td>
+              <td>Excluded (non-DBE)</td>
+            </tr>
+            <tr>
+              <td>16 Jan 2025</td>
+              <td>Project milestone payout</td>
+              <td>+ NGN 520,000</td>
+              <td>Yes</td>
+              <td>Taxable income</td>
+            </tr>
+            <tr>
+              <td>20 Jan 2025</td>
+              <td>Laptop repair (direct business expense)</td>
+              <td>- NGN 48,000</td>
+              <td>Yes</td>
+              <td>Required for service delivery</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <div class="footer">
+        <div>Generated on {{generatedAt}}</div>
+        <a class="wordmark" href="{{appLink}}" target="_blank" rel="noreferrer">TaxEase Nigeria</a>
+      </div>
+    </div>
+  </body>
+</html>

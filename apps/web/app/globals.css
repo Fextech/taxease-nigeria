@@ -1,0 +1,69 @@
+@import "tailwindcss";
+
+:root {
+  /* TaxEase Design System — matching Stitch project */
+  --te-primary: #23494d;
+  --te-primary-light: #2d5e63;
+  --te-primary-dark: #1a3639;
+  --te-accent: #f0a030;
+  --te-accent-light: #f5bc62;
+  --te-mint: #5db297;
+
+  --te-bg: #f8fafb;
+  --te-surface: #ffffff;
+  --te-surface-hover: #f1f5f7;
+  --te-border: #e2e8f0;
+  --te-border-light: #f0f4f7;
+
+  --te-text: #1a1a2e;
+  --te-text-secondary: #64748b;
+  --te-text-muted: #94a3b8;
+
+  --te-success: #22c55e;
+  --te-warning: #f59e0b;
+  --te-error: #ef4444;
+  --te-info: #3b82f6;
+
+  --te-radius: 8px;
+  --te-radius-lg: 12px;
+  --te-radius-sm: 4px;
+
+  --te-sidebar-width: 260px;
+  --te-header-height: 64px;
+
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  font-family: var(--font-sans);
+  background: var(--te-bg);
+  color: var(--te-text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--te-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--te-text-muted);
+}
