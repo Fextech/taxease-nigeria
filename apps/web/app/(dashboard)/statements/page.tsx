@@ -65,6 +65,7 @@ export default function StatementsPage() {
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pdfPassword, setPdfPassword] = useState("");
   const [checkingPassword, setCheckingPassword] = useState(false);
+  const [passwordModalError, setPasswordModalError] = useState("");
 
   // ETA tracking
   const [uploadStartTime, setUploadStartTime] = useState<number | null>(null);
@@ -450,9 +451,17 @@ export default function StatementsPage() {
                   type="password"
                   placeholder="Enter PDF password"
                   value={pdfPassword}
-                  onChange={(e) => setPdfPassword(e.target.value)}
+                  onChange={(e) => {
+                    setPdfPassword(e.target.value);
+                    if (passwordModalError) setPasswordModalError("");
+                  }}
                   autoFocus
                 />
+                {passwordModalError && (
+                  <p style={{ color: "var(--te-error)", fontSize: "13px", marginTop: "8px", marginBottom: "0" }}>
+                    {passwordModalError}
+                  </p>
+                )}
                 <div className="modal-actions">
                   <button
                     className="modal-btn-cancel"
@@ -462,7 +471,7 @@ export default function StatementsPage() {
                     className="modal-btn-confirm"
                     disabled={checkingPassword}
                     onClick={async () => {
-                      if (!pdfPassword) { setError("Please enter the PDF password"); return; }
+                      if (!pdfPassword) { setPasswordModalError("Please enter the PDF password"); return; }
                       if (!pendingFile) return;
 
                       setCheckingPassword(true);
@@ -480,7 +489,7 @@ export default function StatementsPage() {
 
                         const data = await res.json();
                         if (!data.valid) {
-                          setError(data.error || "Incorrect PDF password. Please try again.");
+                          setPasswordModalError(data.error || "Incorrect PDF password. Please try again.");
                           setCheckingPassword(false);
                           return;
                         }
@@ -488,9 +497,10 @@ export default function StatementsPage() {
                         // Password is correct — close modal; the StatementUploader
                         // will pick up the pdfPassword via its useEffect and resume upload.
                         setShowPasswordModal(false);
+                        setPasswordModalError("");
                         // NOTE: Do NOT clear pdfPassword here; the uploader needs it.
                       } catch {
-                        setError("Failed to verify password. Please try again.");
+                        setPasswordModalError("Failed to verify password. Please try again.");
                       } finally {
                         setCheckingPassword(false);
                       }
