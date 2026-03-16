@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
-const BUCKET = process.env.AWS_S3_BUCKET_NAME || 'taxease-statements-dev';
+const BUCKET = process.env.AWS_S3_BUCKET_NAME || 'banklens-statements-dev';
 const URL_EXPIRY = Number(process.env.S3_PRESIGNED_URL_EXPIRY) || 900;
 
 const s3 = new S3Client({
@@ -48,19 +48,25 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace is locked' }, { status: 403 });
             }
 
-            // Check if month already has a statement
-            const existing = await prisma.statement.findUnique({
+            if (workspace.statementCredits <= 0) {
+                return NextResponse.json(
+                    { error: 'Insufficient statement credits. Purchase more credits to continue.' },
+                    { status: 403 }
+                );
+            }
+
+            // Check how many statements already exist for this month
+            const existingCount = await prisma.statement.count({
                 where: {
-                    workspaceId_month: {
-                        workspaceId: data.workspaceId,
-                        month: data.month,
-                    },
+                    workspaceId: data.workspaceId,
+                    month: data.month,
                 },
             });
 
-            if (existing) {
+            const allowedBanks = workspace.allowedBanksCount ?? 1;
+            if (existingCount >= allowedBanks) {
                 return NextResponse.json(
-                    { error: `A statement already exists for this month. Delete it first to re-upload.` },
+                    { error: `You have reached the maximum number of bank statements (${allowedBanks}) for this month. Add more bank capacity in Settings > Billing, or delete an existing statement.` },
                     { status: 409 }
                 );
             }
@@ -97,8 +103,26 @@ export async function POST(request: Request) {
             return NextResponse.json({ uploadUrl, s3Key });
 
         } else if (action === 'confirm') {
-            // Create statement record directly via Prisma
-            const statement = await prisma.statement.create({
+            // Fetch workspace to ensure credits are still available
+            const workspace = await prisma.workspace.findUnique({
+                where: { id: data.workspaceId },
+            });
+
+            if (!workspace || workspace.userId !== session.user.id) {
+                return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+            }
+
+            if (workspace.statementCredits <= 0) {
+                return NextResponse.json({ error: 'Insufficient statement credits.' }, { status: 403 });
+            }
+
+            // Decrement credit and create statement in a transaction
+            const [_, statement] = await prisma.$transaction([
+                prisma.workspace.update({
+                    where: { id: data.workspaceId },
+                    data: { statementCredits: { decrement: 1 } },
+                }),
+                prisma.statement.create({
                 data: {
                     workspaceId: data.workspaceId,
                     month: data.month,
@@ -108,12 +132,13 @@ export async function POST(request: Request) {
                     fileHash: data.fileHash || null,
                     parseStatus: 'PROCESSING',
                 },
-            });
+            }),
+            ]);
 
             // Enqueue job for background worker
             try {
                 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-                const { Queue } = require('bullmq');
+                const { Queue } = await import('bullmq');
                 const parseStatementQueue = new Queue('parse-statement', {
                     connection: {
                         host: new URL(REDIS_URL).hostname || 'localhost',
@@ -181,14 +206,14 @@ export async function POST(request: Request) {
                 // Continue with DB deletion even if S3 fails
             }
 
-            // Cascade delete
-            await prisma.annotation.deleteMany({
+            // Soft-delete cascade (preserves records for audit trail)
+            await (prisma.annotation as unknown as { softDeleteMany: (args: { where: unknown }) => Promise<unknown> }).softDeleteMany({
                 where: { transaction: { statementId: data.statementId } },
             });
-            await prisma.transaction.deleteMany({
+            await (prisma.transaction as unknown as { softDeleteMany: (args: { where: unknown }) => Promise<unknown> }).softDeleteMany({
                 where: { statementId: data.statementId },
             });
-            await prisma.statement.delete({
+            await (prisma.statement as unknown as { softDelete: (args: { where: unknown }) => Promise<unknown> }).softDelete({
                 where: { id: data.statementId },
             });
 
