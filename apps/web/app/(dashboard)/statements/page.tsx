@@ -430,7 +430,8 @@ export default function StatementsPage() {
                 setStatements((prev) => [...prev, statement]);
               }}
               onError={(message) => setError(message)}
-              onPasswordRequired={() => {
+              onPasswordRequired={(file) => {
+                setPendingFile(file);
                 setShowPasswordModal(true);
               }}
               pdfPassword={pdfPassword}
