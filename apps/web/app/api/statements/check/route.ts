@@ -18,9 +18,14 @@ export async function POST(request: Request) {
 
         const PARSER_URL = process.env.PARSER_URL || 'http://127.0.0.1:8000';
         
-        // Reconstruct FormData to ensure correct boundary headers in Node fetch
+        // Next.js (Node) fetch frequently drops the multipart boundary if we just 
+        // pass the raw `formData` object from `request.formData()`.
+        // We must reconstruct it explicitly using an ArrayBuffer/Blob.
         const outFormData = new FormData();
-        outFormData.append('file', file as Blob);
+        const fileContent = await (file as File).arrayBuffer();
+        const fileBlob = new Blob([fileContent], { type: (file as File).type });
+        outFormData.append('file', fileBlob, (file as File).name);
+
         if (password) {
             outFormData.append('password', password as string);
         }

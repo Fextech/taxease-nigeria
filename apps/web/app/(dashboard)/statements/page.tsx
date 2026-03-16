@@ -485,7 +485,11 @@ export default function StatementsPage() {
                           body: formData
                         });
 
-                        if (!res.ok) throw new Error("Validation service failed");
+                        if (!res.ok) {
+                          const errData = await res.json().catch(() => ({}));
+                          console.error("[Password Check] Validation service failed:", errData);
+                          throw new Error("Validation service failed");
+                        }
 
                         const data = await res.json();
                         if (!data.valid) {
@@ -499,8 +503,9 @@ export default function StatementsPage() {
                         setShowPasswordModal(false);
                         setPasswordModalError("");
                         // NOTE: Do NOT clear pdfPassword here; the uploader needs it.
-                      } catch {
-                        setPasswordModalError("Failed to verify password. Please try again.");
+                      } catch (err: any) {
+                        console.error("[Password Check] Exception during check:", err);
+                        setPasswordModalError(err.message || "Failed to verify password. Please try again.");
                       } finally {
                         setCheckingPassword(false);
                       }
