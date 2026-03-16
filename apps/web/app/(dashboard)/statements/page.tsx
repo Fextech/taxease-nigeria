@@ -64,6 +64,7 @@ export default function StatementsPage() {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [pdfPassword, setPdfPassword] = useState("");
+  const [confirmedPdfPassword, setConfirmedPdfPassword] = useState("");
   const [checkingPassword, setCheckingPassword] = useState(false);
   const [passwordModalError, setPasswordModalError] = useState("");
 
@@ -434,7 +435,7 @@ export default function StatementsPage() {
                 setPendingFile(file);
                 setShowPasswordModal(true);
               }}
-              pdfPassword={pdfPassword}
+              pdfPassword={confirmedPdfPassword}
             />
           )}
 
@@ -466,7 +467,7 @@ export default function StatementsPage() {
                 <div className="modal-actions">
                   <button
                     className="modal-btn-cancel"
-                    onClick={() => { setShowPasswordModal(false); setPendingFile(null); setPdfPassword(""); }}
+                    onClick={() => { setShowPasswordModal(false); setPendingFile(null); setPdfPassword(""); setConfirmedPdfPassword(""); }}
                   >Cancel</button>
                   <button
                     className="modal-btn-confirm"
@@ -503,6 +504,7 @@ export default function StatementsPage() {
                         // will pick up the pdfPassword via its useEffect and resume upload.
                         setShowPasswordModal(false);
                         setPasswordModalError("");
+                        setConfirmedPdfPassword(pdfPassword);
                         // NOTE: Do NOT clear pdfPassword here; the uploader needs it.
                       } catch (err: any) {
                         console.error("[Password Check] Exception during check:", err);
