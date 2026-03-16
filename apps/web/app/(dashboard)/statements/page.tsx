@@ -479,7 +479,10 @@ export default function StatementsPage() {
                       setCheckingPassword(true);
                       try {
                         const formData = new FormData();
-                        formData.append("file", pendingFile);
+                        // Clone the file to prevent `fetch` from permanently consuming the stream 
+                        // before Uppy gets a chance to upload the original file to AWS S3.
+                        const clonedFile = new File([pendingFile], pendingFile.name, { type: pendingFile.type });
+                        formData.append("file", clonedFile);
                         formData.append("password", pdfPassword);
 
                         const res = await fetch("/api/statements/check", {
