@@ -67,6 +67,8 @@ export function StatementUploader({
   const s3KeyMapRef = useRef(new Map<string, string>());
   const fileHashMapRef = useRef(new Map<string, string>());
   const pdfPasswordRef = useRef(pdfPassword);
+  const onUploadCompleteRef = useRef(onUploadComplete);
+  const onErrorRef = useRef(onError);
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadingFile, setUploadingFile] = useState<string | null>(null);
@@ -75,10 +77,12 @@ export function StatementUploader({
   // Pending file waiting for password
   const [pendingFile, setPendingFile] = useState<File | null>(null);
 
-  // Keep pdfPasswordRef in sync
+  // Keep refs in sync
   useEffect(() => {
     pdfPasswordRef.current = pdfPassword;
-  }, [pdfPassword]);
+    onUploadCompleteRef.current = onUploadComplete;
+    onErrorRef.current = onError;
+  }, [pdfPassword, onUploadComplete, onError]);
 
   // When pdfPassword changes from empty to a value, resume pending upload
   useEffect(() => {
@@ -191,7 +195,7 @@ export function StatementUploader({
 
         const statement = await confirmRes.json();
         setUploadStatus("done");
-        onUploadComplete({
+        onUploadCompleteRef.current({
           id: statement.id,
           month: statement.month,
           originalFilename: file.name!,
@@ -208,7 +212,7 @@ export function StatementUploader({
       } catch (err) {
         setUploadStatus("error");
         const message = err instanceof Error ? err.message : "Upload confirmation failed";
-        onError(message);
+        onErrorRef.current(message);
         setTimeout(() => {
           uppy.clear();
           setUploadStatus("idle");
@@ -217,7 +221,7 @@ export function StatementUploader({
         }, 3000);
       }
     },
-    [workspaceId, month, onUploadComplete, onError, uppy]
+    [workspaceId, month, uppy]
   );
 
   useEffect(() => {
@@ -239,7 +243,7 @@ export function StatementUploader({
     const onUploadError = (_file: UppyFile<Meta, Body> | undefined, error: Error) => {
       setUploadStatus("error");
       setUploadProgress(0);
-      onError(error.message || "Upload failed");
+      onErrorRef.current(error.message || "Upload failed");
     };
 
     uppy.on("file-added", onFileAdded);
@@ -253,7 +257,7 @@ export function StatementUploader({
       uppy.off("upload-success", onSuccess);
       uppy.off("upload-error", onUploadError);
     };
-  }, [uppy, handleUploadSuccess, onError]);
+  }, [uppy, handleUploadSuccess]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -273,9 +277,9 @@ export function StatementUploader({
         isRemote: false,
       });
     } catch (err) {
-      onError(err instanceof Error ? err.message : "Failed to add file");
+      onErrorRef.current(err instanceof Error ? err.message : "Failed to add file");
     }
-  }, [uppy, onError]);
+  }, [uppy]);
 
   /** Process a file: check for password protection, then add to Uppy */
   const processFile = useCallback(async (file: File) => {
