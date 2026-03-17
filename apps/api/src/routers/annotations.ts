@@ -25,6 +25,7 @@ export const annotationsRouter = router({
             // Build where clause
             const where: Record<string, unknown> = {
                 statement: { workspaceId: input.workspaceId },
+                deletedAt: null,
             };
             if (input.month) {
                 where.statement = { workspaceId: input.workspaceId, month: input.month };
@@ -91,7 +92,10 @@ export const annotationsRouter = router({
 
             // Count transactions
             const totalCount = await ctx.prisma.transaction.count({
-                where: { statement: { workspaceId: input.workspaceId } },
+                where: { 
+                    statement: { workspaceId: input.workspaceId },
+                    deletedAt: null,
+                },
             });
 
             // Count annotated (COMPLETE status)
@@ -99,6 +103,7 @@ export const annotationsRouter = router({
                 where: {
                     status: 'COMPLETE',
                     transaction: { statement: { workspaceId: input.workspaceId } },
+                    deletedAt: null,
                 },
             });
 
@@ -108,6 +113,7 @@ export const annotationsRouter = router({
                     status: 'COMPLETE',
                     taxableStatus: { in: ['YES', 'PARTIAL'] },
                     transaction: { statement: { workspaceId: input.workspaceId } },
+                    deletedAt: null,
                 },
                 select: {
                     taxableStatus: true,
