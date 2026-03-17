@@ -102,6 +102,75 @@ export function StatementUploader({
 
     instance.use(AwsS3, {
       shouldUseMultipart: false,
+
+      // Custom uploadPartBytes that doesn't hang when ETag is missing from CORS.
+      // The default Uppy implementation does `return;` (never resolves) when
+      // ETag is null, permanently freezing the upload. This version resolves
+      // with an empty ETag so `upload-success` still fires.
+      async uploadPartBytes({ signature: { url, expires, headers, method = 'PUT' }, body, size, onProgress, onComplete, signal }: any) {
+        if (!url) throw new Error('Cannot upload to an undefined URL');
+        
+        return new Promise<Record<string, string>>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          xhr.open(method, url, true);
+          if (headers) {
+            Object.keys(headers).forEach((key: string) => {
+              xhr.setRequestHeader(key, headers[key]);
+            });
+          }
+          xhr.responseType = 'text';
+          if (typeof expires === 'number') {
+            xhr.timeout = expires * 1000;
+          }
+
+          function onabort() { xhr.abort(); }
+          function cleanup() { signal?.removeEventListener('abort', onabort); }
+          signal?.addEventListener('abort', onabort);
+
+          xhr.upload.addEventListener('progress', (ev) => onProgress?.(ev));
+
+          xhr.addEventListener('abort', () => {
+            cleanup();
+            reject(new Error('Upload aborted'));
+          });
+
+          xhr.addEventListener('timeout', () => {
+            cleanup();
+            reject(new Error('Request has expired'));
+          });
+
+          xhr.addEventListener('load', () => {
+            cleanup();
+            if (xhr.status < 200 || xhr.status >= 300) {
+              reject(new Error(`Non 2xx response: ${xhr.status}`));
+              return;
+            }
+            onProgress?.({ loaded: size ?? (body as Blob).size, lengthComputable: true });
+
+            // Parse response headers
+            const headersMap: Record<string, string> = {};
+            for (const line of xhr.getAllResponseHeaders().trim().split(/[\r\n]+/)) {
+              const parts = line.split(': ');
+              const header = parts.shift()!;
+              headersMap[header] = parts.join(': ');
+            }
+
+            const etag = headersMap['etag'];
+            // If ETag is missing (CORS), resolve anyway with empty string.
+            // The default Uppy code does `return;` here which HANGS FOREVER.
+            onComplete?.(etag ?? 'unknown');
+            resolve({ ...headersMap, ETag: etag ?? 'unknown' });
+          });
+
+          xhr.addEventListener('error', () => {
+            cleanup();
+            reject(new Error('Upload network error'));
+          });
+
+          xhr.send(body as Blob);
+        });
+      },
+
       async getUploadParameters(file: UppyFile<Meta, Body>) {
         // Hash the file for duplicate detection
         const rawFile = file.data as File;
@@ -216,36 +285,57 @@ export function StatementUploader({
 
   useEffect(() => {
     const onFileAdded = (file: UppyFile<Meta, Body>) => {
+      console.log("[Uppy] file-added:", file.name, file.id);
       setUploadingFile(file.name!);
       setUploadStatus("uploading");
       setUploadProgress(10);
     };
 
     const onProgress = (progress: number) => {
+      console.log("[Uppy] progress:", progress);
       setUploadProgress(Math.max(10, Math.min(90, progress)));
     };
 
     const onSuccess = (file: UppyFile<Meta, Body> | undefined) => {
+      console.log("[Uppy] upload-success:", file?.name, file?.id);
       setUploadProgress(95);
       handleUploadSuccess(file);
     };
 
     const onUploadError = (_file: UppyFile<Meta, Body> | undefined, error: Error) => {
+      console.error("[Uppy] upload-error:", _file?.name, error.message);
       setUploadStatus("error");
       setUploadProgress(0);
       onErrorRef.current(error.message || "Upload failed");
+    };
+
+    const onComplete = (result: any) => {
+      console.log("[Uppy] complete event:", {
+        successful: result?.successful?.length,
+        failed: result?.failed?.length,
+        successFiles: result?.successful?.map((f: any) => f.name),
+        failedFiles: result?.failed?.map((f: any) => ({ name: f.name, error: f.error })),
+      });
+    };
+
+    const onError = (error: Error) => {
+      console.error("[Uppy] error event:", error.message);
     };
 
     uppy.on("file-added", onFileAdded);
     uppy.on("progress", onProgress);
     uppy.on("upload-success", onSuccess);
     uppy.on("upload-error", onUploadError);
+    uppy.on("complete", onComplete);
+    uppy.on("error", onError);
 
     return () => {
       uppy.off("file-added", onFileAdded);
       uppy.off("progress", onProgress);
       uppy.off("upload-success", onSuccess);
       uppy.off("upload-error", onUploadError);
+      uppy.off("complete", onComplete);
+      uppy.off("error", onError);
     };
   }, [uppy, handleUploadSuccess]);
 
