@@ -69,13 +69,12 @@ export function StatementUploader({
   const pdfPasswordRef = useRef(pdfPassword);
   const onUploadCompleteRef = useRef(onUploadComplete);
   const onErrorRef = useRef(onError);
+  const pendingFileRef = useRef<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadingFile, setUploadingFile] = useState<string | null>(null);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "confirming" | "done" | "error">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Pending file waiting for password
-  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   // Keep refs in sync
   useEffect(() => {
@@ -84,15 +83,6 @@ export function StatementUploader({
     onErrorRef.current = onError;
   }, [pdfPassword, onUploadComplete, onError]);
 
-  // When pdfPassword changes from empty to a value, resume pending upload
-  useEffect(() => {
-    if (pdfPassword && pendingFile) {
-      // Password has been provided, proceed with upload
-      addFileToUppy(pendingFile);
-      setPendingFile(null);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pdfPassword]);
 
   const uppy = useMemo(() => {
     const instance = new Uppy({
@@ -281,14 +271,24 @@ export function StatementUploader({
     }
   }, [uppy]);
 
+  // When pdfPassword changes from empty to a value, resume pending upload.
+  // Uses ref so there are NO stale closure issues with the pending file.
+  useEffect(() => {
+    if (pdfPassword && pendingFileRef.current) {
+      const file = pendingFileRef.current;
+      pendingFileRef.current = null;
+      addFileToUppy(file);
+    }
+  }, [pdfPassword, addFileToUppy]);
+
   /** Process a file: check for password protection, then add to Uppy */
   const processFile = useCallback(async (file: File) => {
     // Check password protection for PDFs
     if (file.type === "application/pdf") {
       const isProtected = await isPdfPasswordProtected(file);
       if (isProtected && onPasswordRequired) {
-        // Pause and ask for password
-        setPendingFile(file);
+        // Store file in ref and ask parent for password
+        pendingFileRef.current = file;
         onPasswordRequired(file);
         return;
       }
