@@ -57,12 +57,10 @@ export const statementsRouter = router({
             }
 
             // Check for existing statement in this month
-            const existing = await ctx.prisma.statement.findUnique({
+            const existing = await ctx.prisma.statement.findFirst({
                 where: {
-                    workspaceId_month: {
-                        workspaceId: input.workspaceId,
-                        month: input.month,
-                    },
+                    workspaceId: input.workspaceId,
+                    month: input.month,
                 },
             });
 
@@ -122,6 +120,36 @@ export const statementsRouter = router({
                 });
             }
 
+            // ── Credit consumption ───────────────────────────
+            // If the same file hash was previously uploaded (re-upload), skip credit charge.
+            let isReupload = false;
+            if (input.fileHash) {
+                const existingByHash = await ctx.prisma.statement.findFirst({
+                    where: {
+                        fileHash: input.fileHash,
+                        workspace: { userId: ctx.user.id },
+                    },
+                });
+                if (existingByHash) {
+                    isReupload = true;
+                }
+            }
+
+            if (!isReupload) {
+                if (workspace.statementCredits <= 0) {
+                    throw new TRPCError({
+                        code: 'FORBIDDEN',
+                        message: 'Insufficient statement credits. Purchase more credits to continue.',
+                    });
+                }
+
+                // Decrement credit
+                await ctx.prisma.workspace.update({
+                    where: { id: input.workspaceId },
+                    data: { statementCredits: { decrement: 1 } },
+                });
+            }
+
             // Create statement record
             const statement = await ctx.prisma.statement.create({
                 data: {
@@ -152,6 +180,7 @@ export const statementsRouter = router({
                 newValue: {
                     month: input.month,
                     filename: input.originalFilename,
+                    creditConsumed: !isReupload,
                 },
             });
 
@@ -243,16 +272,16 @@ export const statementsRouter = router({
                 });
             }
 
-            // Delete associated transactions and annotations first
-            await ctx.prisma.annotation.deleteMany({
+            // Soft-delete cascade (preserves records for audit trail)
+            await (ctx.prisma.annotation as unknown as { softDeleteMany: (args: unknown) => Promise<unknown> }).softDeleteMany({
                 where: {
                     transaction: { statementId: input.statementId },
                 },
             });
-            await ctx.prisma.transaction.deleteMany({
+            await (ctx.prisma.transaction as unknown as { softDeleteMany: (args: unknown) => Promise<unknown> }).softDeleteMany({
                 where: { statementId: input.statementId },
             });
-            await ctx.prisma.statement.delete({
+            await (ctx.prisma.statement as unknown as { softDelete: (args: unknown) => Promise<unknown> }).softDelete({
                 where: { id: input.statementId },
             });
 

@@ -42,7 +42,7 @@ export default function Home() {
             letterSpacing: "-0.02em",
           }}
         >
-          TaxEase Nigeria
+          Banklens Nigeria
         </h1>
       </div>
 

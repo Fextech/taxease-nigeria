@@ -209,4 +209,82 @@ describe('computeTax', () => {
         const result = computeTax({ grossIncome: N(5_000_000), taxYear: 2024 });
         expect(result.breakdown).toHaveLength(6);
     });
+
+    // ──────────────────────────────────────────────────────
+    // 2026 Tax Act — New Bands, No CRA, Rent Relief
+    // ──────────────────────────────────────────────────────
+
+    it('2026: CRA is zero (eliminated)', () => {
+        const result = computeTax({ grossIncome: N(5_000_000), taxYear: 2026 });
+        expect(result.cra).toBe(0n);
+    });
+
+    it('2026: first ₦800,000 is tax-free', () => {
+        // Income of ₦800,000 should produce 0 tax in the first band
+        const result = computeTax({ grossIncome: N(800_000), taxYear: 2026 });
+        expect(result.breakdown[0].taxInBand).toBe(0n);
+        expect(result.breakdown[0].taxableInBand).toBe(N(800_000));
+    });
+
+    it('2026: correctly computes tax for ₦5,000,000 gross income', () => {
+        // ₦5,000,000 gross, no CRA, no rent relief
+        // Band 1: ₦800,000 @ 0%  = ₦0
+        // Band 2: ₦2,200,000 @ 15% = ₦330,000
+        // Band 3: ₦2,000,000 @ 18% = ₦360,000  (remaining ₦5M - ₦800k - ₦2.2M = ₦2M)
+        // Total = ₦690,000
+        const result = computeTax({ grossIncome: N(5_000_000), taxYear: 2026 });
+        expect(result.taxableIncome).toBe(N(5_000_000)); // no CRA deduction
+        expect(result.taxLiability).toBe(N(690_000));
+    });
+
+    it('2026: calculates rent relief (20% of rent paid)', () => {
+        // ₦5,000,000 gross, ₦1,000,000 annual rent
+        // Rent relief = 20% of ₦1,000,000 = ₦200,000
+        // Taxable = ₦5,000,000 - ₦200,000 = ₦4,800,000
+        const result = computeTax({
+            grossIncome: N(5_000_000),
+            taxYear: 2026,
+            annualRentPaid: N(1_000_000),
+        });
+        expect(result.rentRelief).toBe(N(200_000));
+        expect(result.taxableIncome).toBe(N(4_800_000));
+    });
+
+    it('2026: caps rent relief at ₦500,000', () => {
+        // ₦10,000,000 gross, ₦5,000,000 annual rent
+        // 20% of ₦5,000,000 = ₦1,000,000 → capped at ₦500,000
+        const result = computeTax({
+            grossIncome: N(10_000_000),
+            taxYear: 2026,
+            annualRentPaid: N(5_000_000),
+        });
+        expect(result.rentRelief).toBe(N(500_000));
+    });
+
+    it('2026: ignores rent relief for pre-2026 years', () => {
+        const result = computeTax({
+            grossIncome: N(5_000_000),
+            taxYear: 2024,
+            annualRentPaid: N(1_000_000),
+        });
+        expect(result.rentRelief).toBe(0n);
+    });
+
+    it('2025 and 2026 produce different results for same income', () => {
+        const input = { grossIncome: N(5_000_000) };
+        const r2025 = computeTax({ ...input, taxYear: 2025 });
+        const r2026 = computeTax({ ...input, taxYear: 2026 });
+
+        // 2025 has CRA, 2026 does not
+        expect(r2025.cra).toBeGreaterThan(0n);
+        expect(r2026.cra).toBe(0n);
+        // Different tax liabilities
+        expect(r2025.taxLiability).not.toBe(r2026.taxLiability);
+    });
+
+    it('2026: returns all six bands in the breakdown', () => {
+        const result = computeTax({ grossIncome: N(5_000_000), taxYear: 2026 });
+        expect(result.breakdown).toHaveLength(6);
+    });
 });
+

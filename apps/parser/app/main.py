@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(
-    title="TaxEase Parser Service",
+    title="Banklens Parser Service",
     description="PDF/CSV bank statement parser using Gemini AI for Nigerian bank statements",
     version="1.0.0",
 )

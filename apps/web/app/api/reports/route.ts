@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
-import { computeTax, type Relief } from '@taxease/shared';
+import { computeTax, type Relief } from '@banklens/shared';
 
 /**
  * POST /api/reports
@@ -28,7 +28,7 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
             }
 
-            const taxYear = data.taxYear || 2023;
+            const taxYear = workspace.taxYear;
 
             // 1. Aggregate taxable income from COMPLETE annotations
             const taxableAnnotations = await prisma.annotation.findMany({
@@ -73,7 +73,8 @@ export async function POST(request: Request) {
             }
 
             // 3. Compute tax
-            const result = computeTax({ grossIncome, reliefs, taxYear });
+            const annualRentPaid = data.annualRentPaid ? BigInt(data.annualRentPaid) : undefined;
+            const result = computeTax({ grossIncome, reliefs, taxYear, annualRentPaid });
 
             // 4. Stats
             const totalTransactions = await prisma.transaction.count({
@@ -91,6 +92,7 @@ export async function POST(request: Request) {
                 taxYear,
                 grossIncome: result.grossIncome.toString(),
                 cra: result.cra.toString(),
+                rentRelief: result.rentRelief.toString(),
                 totalReliefs: result.totalReliefs.toString(),
                 taxableIncome: result.taxableIncome.toString(),
                 taxLiability: result.taxLiability.toString(),

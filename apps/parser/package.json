@@ -1,5 +1,5 @@
 {
-  "name": "@taxease/parser",
+  "name": "@banklens/parser",
   "version": "0.1.0",
   "private": true,
   "scripts": {

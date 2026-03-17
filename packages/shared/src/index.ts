@@ -1,10 +1,20 @@
-// @taxease/shared — Shared types, schemas, and utilities
+// @banklens/shared — Shared types, schemas, and utilities
 // This package is imported by both the frontend (apps/web) and backend (apps/api)
 
 // Constants
 export { TAX_BANDS, type TaxBandConfig, type TaxBand } from './constants/tax-bands';
 export { SUPPORTED_BANKS, type BankConfig } from './constants/banks';
-export { PLANS, type PlanConfig } from './constants/plans';
+export {
+    WORKSPACE_UNLOCK_PRICE,
+    ADDITIONAL_BANK_PRICE,
+    CREDIT_PACKAGES,
+    FREE_TIER_UNLOCKED_MONTHS,
+    FREE_TIER_MAX_BANKS,
+    FREE_TIER_STATEMENT_CREDITS,
+    STANDARD_STATEMENT_CREDITS,
+    type WorkspacePricing,
+    type CreditPackage,
+} from './constants/plans';
 
 // Schemas (Zod)
 export {

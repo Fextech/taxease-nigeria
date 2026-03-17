@@ -24,7 +24,7 @@ export async function POST(request: Request) {
             const workspaces = await prisma.workspace.findMany({
                 where: { userId: session.user.id },
                 orderBy: { taxYear: 'desc' },
-                select: { id: true, taxYear: true, status: true },
+                select: { id: true, taxYear: true, status: true, isUnlocked: true, statementCredits: true, allowedBanksCount: true },
             });
             return NextResponse.json(workspaces);
         }
@@ -51,14 +51,22 @@ export async function POST(request: Request) {
                     userId: session.user.id,
                     taxYear: data.taxYear,
                 },
-                select: { id: true, taxYear: true, status: true },
+                select: { id: true, taxYear: true, status: true, isUnlocked: true, statementCredits: true, allowedBanksCount: true },
             });
 
             return NextResponse.json(workspace);
         }
 
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
-    } catch (error) {
+    } catch (error: unknown) {
+        // Handle foreign key constraint violation (user no longer exists after DB reset)
+        if (error && typeof error === 'object' && 'code' in error && error.code === 'P2003') {
+            console.error('Workspace API: User not found in database. Session may be stale after DB reset.');
+            return NextResponse.json(
+                { error: 'Your session is stale. Please sign out and sign back in.' },
+                { status: 401 }
+            );
+        }
         const message = error instanceof Error ? error.message : String(error);
         console.error('Workspace API error:', message, error);
         return NextResponse.json({ error: 'Internal server error', detail: message }, { status: 500 });

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc/trpc.js';
 import { TRPCError } from '@trpc/server';
-import { computeTax, type TaxComputationResult, type Relief } from '@taxease/shared';
+import { computeTax, type TaxComputationResult, type Relief } from '@banklens/shared';
 
 export const reportsRouter = router({
     // ─── Generate Tax Report ─────────────────────────────
@@ -9,7 +9,8 @@ export const reportsRouter = router({
         .input(
             z.object({
                 workspaceId: z.string().cuid(),
-                taxYear: z.number().int().min(2020).max(2030).default(2023),
+                taxYear: z.number().int().min(2020).max(2030).optional(),
+                annualRentPaid: z.string().optional(), // kobo as string (BigInt)
             })
         )
         .query(async ({ ctx, input }) => {
@@ -78,7 +79,8 @@ export const reportsRouter = router({
                 result = computeTax({
                     grossIncome,
                     reliefs,
-                    taxYear: input.taxYear,
+                    taxYear: workspace.taxYear,
+                    annualRentPaid: input.annualRentPaid ? BigInt(input.annualRentPaid) : undefined,
                 });
             } catch (error) {
                 throw new TRPCError({
@@ -101,9 +103,10 @@ export const reportsRouter = router({
 
             // 5. Serialize BigInt values and return
             return {
-                taxYear: input.taxYear,
+                taxYear: workspace.taxYear,
                 grossIncome: result.grossIncome.toString(),
                 cra: result.cra.toString(),
+                rentRelief: result.rentRelief.toString(),
                 totalReliefs: result.totalReliefs.toString(),
                 taxableIncome: result.taxableIncome.toString(),
                 taxLiability: result.taxLiability.toString(),

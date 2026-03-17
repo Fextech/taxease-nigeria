@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
-import { computeTax, type Relief } from '@taxease/shared';
+import { computeTax, type Relief } from '@banklens/shared';
 
 /**
  * POST /api/dashboard
@@ -148,6 +148,7 @@ export async function POST(request: Request) {
                     grossIncome: taxResult.grossIncome.toString(),
                     taxableIncome: taxResult.taxableIncome.toString(),
                     cra: taxResult.cra.toString(),
+                    rentRelief: taxResult.rentRelief.toString(),
                     taxLiability: taxResult.taxLiability.toString(),
                     effectiveRate: taxResult.effectiveRate,
                 },

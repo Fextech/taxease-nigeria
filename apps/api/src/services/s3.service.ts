@@ -11,7 +11,7 @@ const s3 = new S3Client({
     },
 });
 
-const BUCKET = process.env.AWS_S3_BUCKET_NAME || 'taxease-statements-dev';
+const BUCKET = process.env.AWS_S3_BUCKET_NAME || 'banklens-statements-dev';
 const URL_EXPIRY = Number(process.env.S3_PRESIGNED_URL_EXPIRY) || 900; // 15 minutes
 
 // ─── Presigned URLs ──────────────────────────────────────

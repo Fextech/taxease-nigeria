@@ -27,7 +27,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
         const user = await prisma.user.findUnique({
           where: { email: credentials.email as string },
-        }) as any;
+        });
 
         if (!user || !user.password) {
           return null;
@@ -97,8 +97,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       if (session.user) {
         session.user.id = token.userId as string;
-        (session as any).mfaEnabled = token.mfaEnabled as boolean;
-        (session as any).mfaVerified = token.mfaVerified as boolean;
+        (session as unknown as { mfaEnabled: boolean }).mfaEnabled = token.mfaEnabled as boolean;
+        (session as unknown as { mfaVerified: boolean }).mfaVerified = token.mfaVerified as boolean;
       }
       return session;
     },

@@ -4,6 +4,7 @@ import { statementsRouter } from './statements.js';
 import { annotationsRouter } from './annotations.js';
 import { reportsRouter } from './reports.js';
 import { dashboardRouter } from './dashboard.js';
+import { billingRouter } from './billing.js';
 
 export const appRouter = router({
     health: publicProcedure.query(() => {
@@ -14,6 +15,7 @@ export const appRouter = router({
     annotations: annotationsRouter,
     reports: reportsRouter,
     dashboard: dashboardRouter,
+    billing: billingRouter,
 });
 
 export type AppRouter = typeof appRouter;

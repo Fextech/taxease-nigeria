@@ -29,7 +29,7 @@ export async function POST() {
 
   // Generate a new TOTP secret
   const totp = new OTPAuth.TOTP({
-    issuer: "TaxEase Nigeria",
+    issuer: "Banklens Nigeria",
     label: user.email,
     algorithm: "SHA1",
     digits: 6,

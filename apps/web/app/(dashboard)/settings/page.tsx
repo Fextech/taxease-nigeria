@@ -2,6 +2,9 @@
 
 import { useSession } from "next-auth/react";
 import { useState, useEffect } from "react";
+import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
 const NIGERIAN_STATES = [
   "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
@@ -12,11 +15,22 @@ const NIGERIAN_STATES = [
 ];
 
 type MfaStep = "idle" | "setup" | "verify" | "disable";
-type Tab = "profile" | "security";
+type Tab = "profile" | "security" | "billing";
 
 export default function SettingsPage() {
+  return (
+    <Suspense fallback={<div style={{ padding: 24 }}>Loading settings...</div>}>
+      <SettingsContent />
+    </Suspense>
+  );
+}
+
+function SettingsContent() {
   const { data: session, update } = useSession();
-  const mfaEnabled = (session as any)?.mfaEnabled ?? false;
+  const mfaEnabled = (session as unknown as { mfaEnabled: boolean })?.mfaEnabled ?? false;
+  const { activeWorkspace, refresh: refreshWorkspace } = useWorkspace();
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Tab
   const [activeTab, setActiveTab] = useState<Tab>("profile");
@@ -40,6 +54,111 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // Billing state
+  const [billingLoading, setBillingLoading] = useState(false);
+  const [billingStatus, setBillingStatus] = useState({ type: "", message: "" });
+  const [buyCreditAmount, setBuyCreditAmount] = useState<number>(10);
+
+  // Handle Paystack callback redirect
+  useEffect(() => {
+    const reference = searchParams.get("reference");
+    if (reference && activeWorkspace) {
+      setBillingStatus({ type: "info", message: "Verifying your payment..." });
+      setActiveTab("billing");
+      setBillingLoading(true);
+      
+      fetch("/api/billing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "verifyPayment", reference }),
+      })
+      .then(async (res) => {
+        const data = await res.json();
+        if (res.ok) {
+          setBillingStatus({ type: "success", message: "Payment verified successfully!" });
+          await refreshWorkspace();
+          // Clear query params
+          router.replace("/settings");
+        } else {
+          setBillingStatus({ type: "error", message: data.error || "Payment verification failed." });
+        }
+      })
+      .catch(() => setBillingStatus({ type: "error", message: "Payment verification failed." }))
+      .finally(() => setBillingLoading(false));
+    }
+  }, [searchParams, activeWorkspace, router, refreshWorkspace]);
+
+  // Billing Handlers
+  const handleUnlock = async () => {
+    if (!activeWorkspace) return;
+    setBillingLoading(true);
+    setBillingStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/billing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "unlockWorkspace",
+          workspaceId: activeWorkspace.id,
+          callbackUrl: window.location.origin + "/settings",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to initialize checkout");
+      window.location.href = data.authorizationUrl;
+    } catch (err: unknown) {
+      setBillingStatus({ type: "error", message: (err as Error).message || "Failed to initialize checkout" });
+      setBillingLoading(false);
+    }
+  };
+
+  const handleBuyCredits = async () => {
+    if (!activeWorkspace) return;
+    setBillingLoading(true);
+    setBillingStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/billing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "purchaseCredits",
+          workspaceId: activeWorkspace.id,
+          credits: buyCreditAmount,
+          callbackUrl: window.location.origin + "/settings",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to initialize checkout");
+      window.location.href = data.authorizationUrl;
+    } catch (err: unknown) {
+      setBillingStatus({ type: "error", message: (err as Error).message || "Failed to initialize checkout" });
+      setBillingLoading(false);
+    }
+  };
+
+  const handleAddBank = async () => {
+    if (!activeWorkspace) return;
+    setBillingLoading(true);
+    setBillingStatus({ type: "", message: "" });
+    try {
+      const res = await fetch("/api/billing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "addBankAccount",
+          workspaceId: activeWorkspace.id,
+          callbackUrl: window.location.origin + "/settings",
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to initialize checkout");
+      window.location.href = data.authorizationUrl;
+    } catch (err: unknown) {
+      setBillingStatus({ type: "error", message: (err as Error).message || "Failed to initialize checkout" });
+      setBillingLoading(false);
+    }
+  };
 
   // Load profile
   useEffect(() => {
@@ -153,6 +272,10 @@ export default function SettingsPage() {
           <button className={`settings-tab ${activeTab === "security" ? "settings-tab--active" : ""}`} onClick={() => setActiveTab("security")}>
             <span className="material-symbols-outlined" style={{ fontSize: 18 }}>shield</span>
             Security
+          </button>
+          <button className={`settings-tab ${activeTab === "billing" ? "settings-tab--active" : ""}`} onClick={() => setActiveTab("billing")}>
+            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>credit_card</span>
+            Billing
           </button>
         </div>
 
@@ -347,137 +470,134 @@ export default function SettingsPage() {
             )}
           </div>
         )}
+
+        {/* Billing Tab */}
+        {activeTab === "billing" && (
+          <div className="settings-card">
+            <div className="settings-card-header">
+              <span className="material-symbols-outlined settings-card-icon" style={{ background: "rgba(16,185,129,0.1)", color: "var(--te-mint)" }}>credit_card</span>
+              <div>
+                <h2 className="settings-card-title">Billing & Credits</h2>
+                <p className="settings-card-desc">Manage your workspace subscription and statement credits</p>
+              </div>
+            </div>
+
+            {billingStatus.message && (
+              <div className={`settings-alert settings-alert--${billingStatus.type === "error" ? "error" : "success"}`}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                  {billingStatus.type === "error" ? "error" : "check_circle"}
+                </span>
+                {billingStatus.message}
+              </div>
+            )}
+
+            {activeWorkspace ? (
+              <div className="billing-grid">
+                {/* Plan Card */}
+                <div className="billing-item-card">
+                  <div className="billing-item-header">
+                    <div>
+                      <h3 className="billing-item-title">Current Plan</h3>
+                      <p className="billing-item-desc">Tax Year {activeWorkspace.taxYear}</p>
+                    </div>
+                    <span className={`sec-badge ${activeWorkspace.isUnlocked ? "sec-badge-on" : "sec-badge-off"}`}>
+                      {activeWorkspace.isUnlocked ? "Standard (Unlocked)" : "Free Tier"}
+                    </span>
+                  </div>
+                  <div className="billing-item-body">
+                    {!activeWorkspace.isUnlocked && (
+                      <p className="billing-text">You are currently on the free tier. Only months 1-3 (Jan-Mar) are unlocked for this workspace.</p>
+                    )}
+                    {activeWorkspace.isUnlocked && (
+                      <p className="billing-text">You have full access to all 12 months for this workspace.</p>
+                    )}
+                  </div>
+                  {!activeWorkspace.isUnlocked && (
+                    <div className="billing-item-footer">
+                      <button className="settings-btn-primary" style={{ width: "100%" }} onClick={handleUnlock} disabled={billingLoading}>
+                        {billingLoading ? "Processing..." : "Unlock Full Year — ₦5,000"}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Credits Card */}
+                <div className="billing-item-card">
+                  <div className="billing-item-header">
+                    <div>
+                      <h3 className="billing-item-title">Statement Credits</h3>
+                      <p className="billing-item-desc">Used for processing bank statements</p>
+                    </div>
+                    <div className="billing-credit-badge">
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>local_activity</span>
+                      <strong>{activeWorkspace.statementCredits ?? 0}</strong> left
+                    </div>
+                  </div>
+                  <div className="billing-item-body">
+                    <p className="billing-text" style={{ marginBottom: 16 }}>Each unique statement upload consumes 1 credit. Re-uploading the same statement is free.</p>
+                    <div className="billing-credit-selector">
+                      <button 
+                        className="credit-adjust-btn" 
+                        onClick={() => setBuyCreditAmount(Math.max(1, buyCreditAmount - 1))}
+                        disabled={billingLoading || buyCreditAmount <= 1}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>remove</span>
+                      </button>
+                      <input 
+                        type="number" 
+                        className="settings-input credit-input" 
+                        value={buyCreditAmount} 
+                        onChange={(e) => setBuyCreditAmount(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+                        min={1}
+                        max={100}
+                        step={1}
+                        disabled={billingLoading}
+                      />
+                      <button 
+                        className="credit-adjust-btn" 
+                        onClick={() => setBuyCreditAmount(Math.min(100, buyCreditAmount + 1))}
+                        disabled={billingLoading || buyCreditAmount >= 100}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                      </button>
+                    </div>
+                  </div>
+                  <div className="billing-item-footer">
+                    <button className="settings-btn-ghost" style={{ width: "100%" }} onClick={handleBuyCredits} disabled={billingLoading}>
+                      Buy {buyCreditAmount} Credits — ₦{(buyCreditAmount * 250).toLocaleString()}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Banks Card */}
+                <div className="billing-item-card">
+                  <div className="billing-item-header">
+                    <div>
+                      <h3 className="billing-item-title">Allowed Bank Accounts</h3>
+                      <p className="billing-item-desc">Number of unique bank accounts you can process</p>
+                    </div>
+                    <div className="billing-credit-badge" style={{ background: "rgba(35,73,77,0.06)", color: "var(--te-primary)", borderColor: "var(--te-border)" }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>account_balance</span>
+                      <strong>{activeWorkspace.allowedBanksCount ?? 1}</strong> accounts
+                    </div>
+                  </div>
+                  <div className="billing-item-body">
+                    <p className="billing-text">Need to file statements from multiple banks? Add more bank capacity to this workspace.</p>
+                  </div>
+                  <div className="billing-item-footer">
+                    <button className="settings-btn-ghost" style={{ width: "100%" }} onClick={handleAddBank} disabled={billingLoading}>
+                      Add Bank Account — ₦3,000
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="settings-hint">Loading workspace data...</p>
+            )}
+          </div>
+        )}
       </div>
 
-      <style jsx>{`
-        .settings-page { display: flex; flex-direction: column; gap: 24px; }
-
-        /* Tabs */
-        .settings-tabs {
-          display: flex; gap: 4px; padding: 4px; border-radius: 10px;
-          background: rgba(35,73,77,0.04); width: fit-content;
-        }
-        .settings-tab {
-          display: flex; align-items: center; gap: 6px; padding: 10px 20px; border-radius: 8px;
-          font-size: 14px; font-weight: 600; cursor: pointer; border: none;
-          background: transparent; color: var(--te-text-muted); font-family: var(--font-sans);
-          transition: all 0.15s;
-        }
-        .settings-tab:hover { color: var(--te-text); }
-        .settings-tab--active {
-          background: var(--te-surface); color: var(--te-text);
-          box-shadow: 0 1px 3px rgba(0,0,0,0.06);
-        }
-
-        /* Card */
-        .settings-card {
-          background: var(--te-surface); border-radius: 12px; padding: 32px;
-          border: 1px solid rgba(35,73,77,0.05); box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-        }
-        .settings-card-header { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
-        .settings-card-icon {
-          font-size: 24px; color: var(--te-primary);
-          width: 48px; height: 48px; border-radius: 12px;
-          background: rgba(35,73,77,0.08); display: flex; align-items: center; justify-content: center;
-        }
-        .settings-card-title { font-size: 20px; font-weight: 700; color: var(--te-text); margin: 0; }
-        .settings-card-desc { font-size: 13px; color: var(--te-text-muted); margin: 4px 0 0; }
-
-        /* Alerts */
-        .settings-alert {
-          display: flex; align-items: center; gap: 8px; padding: 12px 16px;
-          border-radius: 8px; margin-bottom: 20px; font-size: 13px; font-weight: 500;
-        }
-        .settings-alert--success { background: rgba(16,185,129,0.08); color: #059669; border: 1px solid rgba(16,185,129,0.15); }
-        .settings-alert--error { background: rgba(239,68,68,0.08); color: #dc2626; border: 1px solid rgba(239,68,68,0.15); }
-
-        /* Loading */
-        .settings-loading { text-align: center; padding: 40px 0; color: var(--te-text-muted); }
-        .settings-loading p { margin: 12px 0 0; font-size: 14px; }
-        .settings-spin { animation: spin 1.5s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-        /* Form */
-        .settings-form { display: flex; flex-direction: column; gap: 20px; }
-        .settings-field { display: flex; flex-direction: column; gap: 6px; }
-        .settings-label { font-size: 13px; font-weight: 600; color: var(--te-text-secondary); }
-        .settings-input {
-          padding: 12px 16px; border-radius: 8px; border: 1px solid var(--te-border);
-          background: var(--te-surface); font-size: 14px; color: var(--te-text);
-          font-family: var(--font-sans); outline: none; transition: border-color 0.15s;
-        }
-        .settings-input:focus { border-color: var(--te-primary); }
-        .settings-select {
-          padding: 12px 16px; border-radius: 8px; border: 1px solid var(--te-border);
-          background: var(--te-surface); font-size: 14px; color: var(--te-text);
-          font-family: var(--font-sans); outline: none; cursor: pointer;
-        }
-        .settings-select:focus { border-color: var(--te-primary); }
-        .settings-hint { font-size: 11px; color: var(--te-text-muted); margin: 0; }
-
-        /* Actions */
-        .settings-actions { display: flex; gap: 12px; justify-content: flex-end; padding-top: 8px; }
-        .settings-btn-primary {
-          padding: 12px 28px; border-radius: 8px; font-size: 14px; font-weight: 600;
-          border: none; background: var(--te-primary); color: #fff;
-          cursor: pointer; font-family: var(--font-sans); transition: all 0.15s;
-        }
-        .settings-btn-primary:hover:not(:disabled) { background: var(--te-primary-light); }
-        .settings-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-        .settings-btn-danger {
-          padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;
-          background: rgba(239,68,68,0.08); color: #dc2626; border: 1px solid rgba(239,68,68,0.15);
-          cursor: pointer; font-family: var(--font-sans); transition: all 0.15s;
-        }
-        .settings-btn-danger:hover:not(:disabled) { background: rgba(239,68,68,0.15); }
-        .settings-btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
-        .settings-btn-ghost {
-          padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600;
-          background: transparent; color: var(--te-text-secondary); border: 1px solid var(--te-border);
-          cursor: pointer; font-family: var(--font-sans); transition: all 0.15s;
-        }
-        .settings-btn-ghost:hover { background: var(--te-surface-hover); }
-
-        /* MFA Section */
-        .sec-mfa-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
-        .sec-mfa-label { font-size: 16px; font-weight: 600; color: var(--te-text); margin: 0; }
-        .sec-mfa-desc { font-size: 13px; color: var(--te-text-muted); margin: 4px 0 0; }
-        .sec-badge {
-          font-size: 12px; font-weight: 600; padding: 4px 12px;
-          border-radius: 20px; white-space: nowrap;
-        }
-        .sec-badge-on { background: rgba(16,185,129,0.1); color: #059669; border: 1px solid rgba(16,185,129,0.2); }
-        .sec-badge-off { background: rgba(100,116,139,0.06); color: var(--te-text-muted); border: 1px solid var(--te-border); }
-
-        .sec-setup {}
-        .sec-setup-text { font-size: 14px; color: var(--te-text-muted); line-height: 1.6; margin-bottom: 24px; }
-        .sec-qr-container {
-          display: flex; justify-content: center; margin-bottom: 20px;
-          background: #fff; border-radius: 12px; padding: 16px;
-          width: fit-content; margin-left: auto; margin-right: auto;
-          border: 1px solid var(--te-border);
-        }
-        .sec-qr { width: 180px; height: 180px; }
-        .sec-manual { text-align: center; margin-bottom: 24px; }
-        .sec-manual-label { font-size: 12px; color: var(--te-text-muted); margin-bottom: 8px; }
-        .sec-manual-code {
-          display: inline-block; padding: 8px 16px; border-radius: 8px;
-          background: rgba(35,73,77,0.04); border: 1px solid var(--te-border);
-          color: var(--te-primary); font-size: 14px; letter-spacing: 2px;
-          font-family: monospace; user-select: all;
-        }
-        .sec-code-input {
-          text-align: center !important; letter-spacing: 8px; font-size: 18px !important;
-          font-family: monospace !important;
-        }
-
-        @media (max-width: 768px) {
-          .settings-card { padding: 24px 16px; }
-          .sec-mfa-row { flex-direction: column; align-items: flex-start; }
-          .settings-actions { flex-direction: column; }
-          .settings-btn-primary, .settings-btn-danger, .settings-btn-ghost { width: 100%; text-align: center; }
-        }
-      `}</style>
     </>
   );
 }

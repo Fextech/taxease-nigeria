@@ -20,6 +20,7 @@ interface ReportData {
   taxYear: number;
   grossIncome: string;
   cra: string;
+  rentRelief?: string;
   totalReliefs: string;
   taxableIncome: string;
   taxLiability: string;
@@ -110,14 +111,23 @@ export default function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Rent relief input (for 2026+ tax years)
+  const [annualRentInput, setAnnualRentInput] = useState("");
+
   const loadReport = useCallback(async (wsId: string) => {
     setLoading(true);
     setError(null);
     try {
+      const reportBody: Record<string, unknown> = { action: "generate", workspaceId: wsId };
+      // For 2026+ tax years, include rent amount if provided
+      if (annualRentInput && !isNaN(Number(annualRentInput))) {
+        // Convert naira to kobo for the API
+        reportBody.annualRentPaid = (BigInt(Math.round(Number(annualRentInput) * 100))).toString();
+      }
       const res = await fetch("/api/reports", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "generate", workspaceId: wsId }),
+        body: JSON.stringify(reportBody),
       });
 
       if (res.ok) {
@@ -132,7 +142,7 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [annualRentInput]);
 
   useEffect(() => {
     if (activeWorkspaceId) {
@@ -144,6 +154,7 @@ export default function ReportsPage() {
   }, [activeWorkspaceId, loadReport]);
 
   const taxYear = activeWorkspace?.taxYear ?? new Date().getFullYear();
+  const is2026Plus = taxYear >= 2026;
 
   // Additional Deductions
   const [showAdditionalDeductions, setShowAdditionalDeductions] = useState(false);
@@ -320,19 +331,59 @@ export default function ReportsPage() {
                   <h4 className="reliefs-title">Reliefs & Statutory Deductions</h4>
                 </div>
                 <div className="reliefs-list">
-                  {/* CRA is always first */}
-                  <div className="relief-item">
-                    <div className="relief-left">
-                      <div className="relief-icon" style={{ background: "rgba(35,73,77,0.08)", color: "var(--te-primary)" }}>
-                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>shield</span>
+                  {/* CRA — show only for pre-2026 */}
+                  {!is2026Plus && (
+                    <div className="relief-item">
+                      <div className="relief-left">
+                        <div className="relief-icon" style={{ background: "rgba(35,73,77,0.08)", color: "var(--te-primary)" }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>shield</span>
+                        </div>
+                        <div>
+                          <p className="relief-name">Consolidated Relief (CRA)</p>
+                          <p className="relief-desc">Fixed + 20% of Gross Income</p>
+                        </div>
                       </div>
-                      <div>
-                        <p className="relief-name">Consolidated Relief (CRA)</p>
-                        <p className="relief-desc">Fixed + 20% of Gross Income</p>
+                      <span className="relief-amount">{formatKobo(cra)}</span>
+                    </div>
+                  )}
+
+                  {/* Rent Relief — show only for 2026+ */}
+                  {is2026Plus && (
+                    <div className="relief-item rent-relief-item">
+                      <div className="relief-left">
+                        <div className="relief-icon" style={{ background: "rgba(16,185,129,0.1)", color: "var(--te-mint)" }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>home</span>
+                        </div>
+                        <div>
+                          <p className="relief-name">Rent Relief (2025 Tax Act)</p>
+                          <p className="relief-desc">20% of annual rent paid, capped at ₦500,000</p>
+                        </div>
+                      </div>
+                      <div className="rent-relief-input-wrap">
+                        <div className="rent-input-group">
+                          <span className="rent-currency">₦</span>
+                          <input
+                            className="rent-input"
+                            type="number"
+                            placeholder="Annual rent paid"
+                            value={annualRentInput}
+                            onChange={(e) => setAnnualRentInput(e.target.value)}
+                          />
+                        </div>
+                        {report?.rentRelief && BigInt(report.rentRelief) > 0n && (
+                          <span className="rent-relief-amount">Relief: {formatKobo(report.rentRelief)}</span>
+                        )}
                       </div>
                     </div>
-                    <span className="relief-amount">{formatKobo(cra)}</span>
-                  </div>
+                  )}
+
+                  {/* 2026 Tax Act disclaimer */}
+                  {is2026Plus && (
+                    <div className="tax-act-disclaimer">
+                      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>info</span>
+                      <span>Computed under the 2025 Tax Act. CRA has been replaced by a tax-free threshold of ₦800,000 and optional Rent Relief.</span>
+                    </div>
+                  )}
 
                   {reliefs.filter((r) => !HIDDEN_RELIEFS.includes(r.label)).map((r) => {
                     const meta = RELIEF_ICONS[r.label] || { icon: "receipt", color: "#8b5cf6" };
@@ -475,230 +526,6 @@ export default function ReportsPage() {
         )}
       </div>
 
-      <style jsx>{`
-        .reports-page { display: flex; flex-direction: column; gap: 24px; }
-
-        /* Loading / Error */
-        .report-loading, .report-error { padding: 60px 24px; text-align: center; color: var(--te-text-muted); }
-        .report-loading p, .report-error p { margin: 12px 0; font-size: 15px; }
-        .status-spin { animation: spin 1.5s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-        /* Header */
-        .report-header-card {
-          display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;
-        }
-        .report-year { font-size: 28px; font-weight: 700; color: var(--te-text); margin: 0; }
-        .report-status {
-          display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--te-text-muted);
-          margin-top: 4px;
-        }
-        .report-header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .year-select {
-          padding: 8px 12px; border-radius: 8px; border: 1px solid var(--te-border);
-          background: var(--te-surface); font-size: 13px; font-weight: 600; color: var(--te-text);
-          font-family: var(--font-sans); cursor: pointer;
-        }
-        .report-btn-outline {
-          display: flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px;
-          border: 1px solid var(--te-border); background: var(--te-surface); font-size: 13px;
-          font-weight: 600; color: var(--te-text-secondary); cursor: pointer; font-family: var(--font-sans);
-          transition: all 0.15s;
-        }
-        .report-btn-outline:hover { background: var(--te-surface-hover); border-color: var(--te-primary-light); }
-        .report-btn-primary {
-          display: flex; align-items: center; gap: 6px; padding: 8px 18px; border-radius: 8px;
-          border: none; background: var(--te-primary); color: #fff; font-size: 13px;
-          font-weight: 700; cursor: pointer; font-family: var(--font-sans); transition: background 0.15s;
-        }
-        .report-btn-primary:hover { background: var(--te-primary-light); }
-
-        /* Computation */
-        .computation-card {
-          background: var(--te-surface); border-radius: 12px; padding: 24px;
-          border: 1px solid rgba(35,73,77,0.05); box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-        }
-        .section-title { font-size: 15px; font-weight: 700; color: var(--te-text); margin: 0 0 20px; }
-        .computation-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
-        .comp-item { display: flex; flex-direction: column; gap: 4px; }
-        .comp-item--liability { background: rgba(220,38,38,0.06); border-radius: 8px; padding: 12px; }
-        .comp-label { font-size: 12px; color: var(--te-text-muted); }
-        .comp-value { font-size: 18px; font-weight: 700; color: var(--te-text); }
-        .comp-value--liability { color: #dc2626; }
-        .comp-sublabel { font-size: 11px; color: var(--te-text-muted); margin-top: 2px; }
-        .min-tax-note {
-          display: flex; align-items: center; gap: 6px; margin-top: 16px;
-          font-size: 12px; color: var(--te-accent); background: rgba(240,160,48,0.08);
-          padding: 8px 12px; border-radius: 6px;
-        }
-
-        /* Columns */
-        .report-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-
-        /* Breakdown */
-        .breakdown-card, .reliefs-card {
-          background: var(--te-surface); border-radius: 12px; padding: 24px;
-          border: 1px solid rgba(35,73,77,0.05); box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-        }
-        .breakdown-header, .reliefs-header {
-          display: flex; align-items: center; gap: 8px; margin-bottom: 20px;
-        }
-        .breakdown-title, .reliefs-title { font-size: 15px; font-weight: 700; color: var(--te-text); margin: 0; }
-
-        .breakdown-table { width: 100%; text-align: left; border-collapse: collapse; }
-        .breakdown-table th {
-          padding: 10px 12px; font-size: 10px; font-weight: 700; text-transform: uppercase;
-          letter-spacing: 0.06em; color: var(--te-text-muted); background: rgba(100,116,139,0.04);
-          border-bottom: 1px solid rgba(35,73,77,0.05);
-        }
-        .breakdown-table td {
-          padding: 12px; font-size: 14px; border-bottom: 1px solid rgba(35,73,77,0.05);
-        }
-        .row-zero td { opacity: 0.4; }
-        .total-row td { border-top: 2px solid rgba(35,73,77,0.1); }
-        .rate-badge {
-          display: inline-block; padding: 2px 8px; border-radius: 4px;
-          background: rgba(35,73,77,0.06); font-size: 12px; font-weight: 700; color: var(--te-primary);
-        }
-        .empty-text { font-size: 14px; color: var(--te-text-muted); text-align: center; padding: 20px; }
-
-        /* Reliefs */
-        .reliefs-list { display: flex; flex-direction: column; gap: 16px; }
-        .relief-item {
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 12px; border-radius: 8px; border: 1px solid rgba(35,73,77,0.05);
-        }
-        .relief-left { display: flex; align-items: center; gap: 12px; }
-        .relief-icon {
-          width: 40px; height: 40px; border-radius: 10px;
-          display: flex; align-items: center; justify-content: center;
-        }
-        .relief-name { font-size: 14px; font-weight: 600; color: var(--te-text); margin: 0; }
-        .relief-desc { font-size: 11px; color: var(--te-text-muted); margin: 2px 0 0; }
-        .relief-amount { font-size: 14px; font-weight: 700; color: var(--te-text); }
-
-        /* Category breakdown */
-        .category-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-        .category-item {
-          display: flex; flex-direction: column; gap: 4px;
-          padding: 12px; border-radius: 8px; border: 1px solid rgba(35,73,77,0.05);
-        }
-        .category-label { font-size: 12px; color: var(--te-text-muted); }
-        .category-value { font-size: 16px; font-weight: 700; color: var(--te-text); }
-
-        /* Filing CTA */
-        .filing-cta {
-          display: flex; align-items: center; justify-content: space-between; gap: 24px;
-          padding: 28px 32px; border-radius: 12px;
-          background: linear-gradient(135deg, var(--te-primary-dark), var(--te-primary));
-          color: #fff;
-        }
-        .filing-cta-title { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
-        .filing-cta-desc { font-size: 13px; color: rgba(255,255,255,0.7); margin: 0; max-width: 600px; line-height: 1.6; }
-        .filing-cta-badges { display: flex; align-items: center; gap: 6px; margin-top: 12px; }
-        .filing-verified-text { font-size: 12px; color: rgba(255,255,255,0.6); }
-        .filing-cta-btn {
-          display: flex; align-items: center; gap: 8px; padding: 14px 28px; border-radius: 10px;
-          background: var(--te-accent); color: var(--te-primary-dark); font-size: 15px;
-          font-weight: 700; border: none; cursor: pointer; font-family: var(--font-sans);
-          white-space: nowrap; transition: all 0.15s;
-          box-shadow: 0 4px 12px rgba(240,160,48,0.3);
-        }
-        .filing-cta-btn:hover { background: var(--te-accent-light); transform: translateY(-1px); }
-
-        @media (max-width: 1024px) {
-          .report-columns { grid-template-columns: 1fr; }
-          .computation-grid { grid-template-columns: repeat(2, 1fr); }
-        }
-        @media (max-width: 768px) {
-          .computation-grid { grid-template-columns: 1fr; }
-          .filing-cta { flex-direction: column; align-items: flex-start; }
-        }
-
-        /* Additional Deductions */
-        .additional-deductions {
-          border-top: 1px solid rgba(35,73,77,0.08); padding-top: 16px; margin-top: 8px;
-        }
-        .addl-deduct-header {
-          display: flex; align-items: center; justify-content: space-between;
-        }
-        .addl-deduct-label { font-size: 14px; font-weight: 600; color: var(--te-text); }
-        .toggle-switch {
-          position: relative; display: inline-block; width: 40px; height: 22px;
-        }
-        .toggle-switch input { opacity: 0; width: 0; height: 0; }
-        .toggle-slider {
-          position: absolute; cursor: pointer; inset: 0; background: var(--te-border);
-          border-radius: 22px; transition: 0.2s;
-        }
-        .toggle-slider::before {
-          content: ""; position: absolute; height: 16px; width: 16px; left: 3px; bottom: 3px;
-          background: #fff; border-radius: 50%; transition: 0.2s;
-        }
-        .toggle-switch input:checked + .toggle-slider { background: var(--te-primary); }
-        .toggle-switch input:checked + .toggle-slider::before { transform: translateX(18px); }
-
-        .addl-deduct-body { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; }
-        .addl-deduct-row { display: flex; gap: 8px; align-items: center; }
-        .addl-deduct-input {
-          flex: 1; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--te-border);
-          font-size: 13px; font-family: var(--font-sans); color: var(--te-text); background: var(--te-surface);
-        }
-        .addl-deduct-input:focus { border-color: var(--te-primary); outline: none; }
-        .addl-deduct-amount { max-width: 140px; }
-        .addl-deduct-remove {
-          background: none; border: none; color: var(--te-text-muted); cursor: pointer; padding: 4px;
-          border-radius: 4px; transition: 0.15s;
-        }
-        .addl-deduct-remove:hover { color: #dc2626; background: rgba(220,38,38,0.08); }
-        .addl-deduct-add {
-          display: flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600;
-          color: var(--te-primary); background: none; border: 1px dashed var(--te-border);
-          padding: 8px 12px; border-radius: 6px; cursor: pointer; font-family: var(--font-sans);
-          transition: 0.15s;
-        }
-        .addl-deduct-add:hover { border-color: var(--te-primary); background: rgba(35,73,77,0.03); }
-        .addl-deduct-total {
-          display: flex; justify-content: space-between; font-size: 13px; color: var(--te-text);
-          padding: 8px 12px; background: rgba(35,73,77,0.04); border-radius: 6px;
-        }
-        .addl-deduct-note {
-          display: flex; align-items: center; gap: 6px;
-          font-size: 11px; color: var(--te-text-muted); margin: 4px 0 0;
-        }
-
-        /* State Modal */
-        .modal-overlay {
-          position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 100;
-          display: flex; align-items: center; justify-content: center;
-        }
-        .modal-card {
-          background: var(--te-surface); border-radius: 16px; padding: 32px;
-          max-width: 420px; width: 90%; box-shadow: 0 24px 48px rgba(0,0,0,0.2);
-        }
-        .modal-header { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
-        .modal-title { font-size: 18px; font-weight: 700; color: var(--te-text); margin: 0; }
-        .modal-desc { font-size: 13px; color: var(--te-text-muted); line-height: 1.6; margin: 0 0 20px; }
-        .modal-select {
-          width: 100%; padding: 12px 16px; border-radius: 8px; border: 1px solid var(--te-border);
-          background: var(--te-surface); font-size: 14px; color: var(--te-text); font-family: var(--font-sans);
-          margin-bottom: 20px; outline: none;
-        }
-        .modal-select:focus { border-color: var(--te-primary); }
-        .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
-        .modal-btn-cancel {
-          padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600;
-          border: 1px solid var(--te-border); background: var(--te-surface); color: var(--te-text-secondary);
-          cursor: pointer; font-family: var(--font-sans); transition: all 0.15s;
-        }
-        .modal-btn-cancel:hover { background: var(--te-surface-hover); }
-        .modal-btn-confirm {
-          padding: 10px 20px; border-radius: 8px; font-size: 13px; font-weight: 600;
-          border: none; background: var(--te-primary); color: #fff;
-          cursor: pointer; font-family: var(--font-sans); transition: all 0.15s;
-        }
-        .modal-btn-confirm:hover { background: var(--te-primary-light); }
-      `}</style>
     </>
   );
 }

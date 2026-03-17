@@ -45,7 +45,7 @@ async function main() {
     // Start server
     try {
         await fastify.listen({ port: PORT, host: '0.0.0.0' });
-        fastify.log.info(`🚀 TaxEase API running at http://localhost:${PORT}`);
+        fastify.log.info(`🚀 Banklens API running at http://localhost:${PORT}`);
         fastify.log.info(`📋 Health check: http://localhost:${PORT}/health`);
         fastify.log.info(`🔌 tRPC endpoint: http://localhost:${PORT}/trpc`);
     } catch (err) {

@@ -12,7 +12,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     trpc.createClient({
       links: [
         httpBatchLink({
-          url: process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001/api/trpc",
+          url: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/trpc`,
           async headers() {
             // Include credentials (cookies) in requests sent to Fastify API
             // Note: Next.js middleware handles token logic, but Fastify

@@ -1,6 +1,6 @@
-# TaxEase Nigeria - AI Agent Instructions
+# BankLens Nigeria - AI Agent Instructions
 
-This file provides crucial architectural context and rules for AI agents (Warp, Cursor, Copilot) working within the TaxEase Nigeria monorepo. **Always read this file before suggesting large architectural changes.**
+This file provides crucial architectural context and rules for AI agents (Warp, Cursor, Copilot, Antigravity) working within the BankLens Nigeria monorepo. **Always read this file before suggesting large architectural changes.**
 
 ## Monorepo Architecture
 Turborepo managed with **pnpm 9.x** (Node ≥ 20).

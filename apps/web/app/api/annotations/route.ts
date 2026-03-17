@@ -276,12 +276,10 @@ export async function POST(request: Request) {
             }
 
             // Find the statement for this month
-            const statement = await prisma.statement.findUnique({
+            const statement = await prisma.statement.findFirst({
                 where: {
-                    workspaceId_month: {
-                        workspaceId: data.workspaceId,
-                        month: data.month,
-                    },
+                    workspaceId: data.workspaceId,
+                    month: data.month,
                 },
             });
 
@@ -289,11 +287,11 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'No statement found for this month' }, { status: 404 });
             }
 
-            // Delete annotations → transactions for this statement
-            await prisma.annotation.deleteMany({
+            // Soft-delete annotations → transactions for this statement
+            await (prisma.annotation as unknown as { softDeleteMany: (args: { where: unknown }) => Promise<unknown> }).softDeleteMany({
                 where: { transaction: { statementId: statement.id } },
             });
-            await prisma.transaction.deleteMany({
+            await (prisma.transaction as unknown as { softDeleteMany: (args: { where: unknown }) => Promise<unknown> }).softDeleteMany({
                 where: { statementId: statement.id },
             });
 

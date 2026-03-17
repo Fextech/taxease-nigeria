@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
   const secretBase32 = decrypt(user.totpSecret);
 
   const totp = new OTPAuth.TOTP({
-    issuer: "TaxEase Nigeria",
+    issuer: "Banklens Nigeria",
     label: user.email,
     algorithm: "SHA1",
     digits: 6,

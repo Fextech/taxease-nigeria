@@ -30,7 +30,7 @@ const s3 = new S3Client({
     },
 });
 
-const BUCKET = process.env.AWS_S3_BUCKET_NAME || 'taxease-statements-dev';
+const BUCKET = process.env.AWS_S3_BUCKET_NAME || 'banklens-statements-dev';
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -118,7 +118,7 @@ const parseStatementWorker = new Worker(
                     { statementId, size: fileBuffer.length },
                     '⬇️  Downloaded file from S3'
                 );
-            } catch (s3Error) {
+            } catch {
                 logger.warn({ statementId }, '⚠️  S3 download failed — skipping parse in dev mode');
                 await prisma.statement.update({
                     where: { id: statementId },
@@ -161,25 +161,27 @@ const parseStatementWorker = new Worker(
             await job.updateProgress(60);
 
             // 4. Bulk insert parsed transactions into the database
-            if (parseResult.transactions.length > 0) {
-                await prisma.transaction.createMany({
-                    data: parseResult.transactions.map((tx) => ({
-                        statementId,
-                        transactionDate: new Date(tx.transaction_date),
-                        description: tx.description,
-                        creditAmount: BigInt(tx.credit_amount),
-                        debitAmount: BigInt(tx.debit_amount),
-                        balance: tx.balance != null ? BigInt(tx.balance) : null,
-                        channel: tx.channel || null,
-                        confidence: tx.confidence,
-                    })),
-                });
-
-                logger.info(
-                    { statementId, count: parseResult.transactions.length },
-                    '💾 Saved transactions to database'
-                );
+            if (!parseResult.transactions || parseResult.transactions.length === 0) {
+                throw new Error("Parser returned 0 transactions. The file may be an unsupported format, poorly scanned, or empty.");
             }
+
+            await prisma.transaction.createMany({
+                data: parseResult.transactions.map((tx) => ({
+                    statementId,
+                    transactionDate: new Date(tx.transaction_date),
+                    description: tx.description,
+                    creditAmount: BigInt(tx.credit_amount),
+                    debitAmount: BigInt(tx.debit_amount),
+                    balance: tx.balance != null ? BigInt(tx.balance) : null,
+                    channel: tx.channel || null,
+                    confidence: tx.confidence,
+                })),
+            });
+
+            logger.info(
+                { statementId, count: parseResult.transactions.length },
+                '💾 Saved transactions to database'
+            );
 
             await job.updateProgress(85);
 
@@ -215,7 +217,14 @@ const parseStatementWorker = new Worker(
             throw error; // Re-throw so BullMQ retries
         }
     },
-    { connection: redisConnection, concurrency: 3 }
+    { 
+        connection: redisConnection, 
+        concurrency: 3,
+        // Gemini can take several minutes for large bank statements.
+        // Increase lock duration so BullMQ doesn't mark the job as stalled.
+        lockDuration: 600_000,      // 10 minutes
+        lockRenewTime: 300_000,     // Renew lock every 5 minutes
+    }
 );
 
 // ─── Generate Report Worker (stub) ──────────────────────
@@ -243,4 +252,4 @@ const shutdown = async () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-logger.info('🔧 TaxEase Worker running — waiting for jobs...');
+logger.info('🔧 Banklens Worker running — waiting for jobs...');

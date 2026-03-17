@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc/trpc.js';
-import { createWorkspaceSchema, lockWorkspaceSchema } from '@taxease/shared';
+import { createWorkspaceSchema, lockWorkspaceSchema } from '@banklens/shared';
 import { logAction } from '../services/audit.js';
 import { TRPCError } from '@trpc/server';
 

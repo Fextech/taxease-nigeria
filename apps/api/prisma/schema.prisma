@@ -151,12 +151,23 @@ model Workspace {
   totalIncome        BigInt          @default(0)   // Stored in kobo
   totalTaxableIncome BigInt          @default(0)
   totalTaxLiability  BigInt          @default(0)
+
+  // ── Billing / Credits ─────────────────────────────────
+  isUnlocked         Boolean         @default(false)  // false = free tier (3 months)
+  allowedBanksCount  Int             @default(1)       // 1 for free, upgradeable
+  statementCredits   Int             @default(3)       // free tier gets 3 credits
+
+  // ── Tax Data ──────────────────────────────────────────
+  annualRentAmount   BigInt?         // Annual rent paid (kobo) — used for 2026+ rent relief
+
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
+  deletedAt          DateTime?
 
   user               User            @relation(fields: [userId], references: [id])
   statements         Statement[]
   delegations        Delegation[]
+  creditPurchases    CreditPurchase[]
 
   @@unique([userId, taxYear])
   @@index([userId])
@@ -167,21 +178,24 @@ model Statement {
   workspaceId      String
   month            Int             // 1-12
   bankName         String?
+  bankAccountLabel String?         // e.g. "GTBank - Savings" to distinguish accounts
   originalFilename String
   s3Key            String
   mimeType         String
-  fileHash         String?         // For duplicate detection
+  fileHash         String?         // SHA-256 hash for duplicate detection
   parseStatus      StatementStatus @default(UPLOADED)
   confidenceScore  Float?
   rowCount         Int?
   errorMessage     String?
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
+  deletedAt        DateTime?
 
   workspace        Workspace       @relation(fields: [workspaceId], references: [id])
   transactions     Transaction[]
 
-  @@unique([workspaceId, month])
+  @@unique([workspaceId, month, bankAccountLabel])  // one statement per month per bank account
+  @@unique([workspaceId, fileHash])                 // prevent duplicate file uploads
   @@index([workspaceId])
 }
 
@@ -200,6 +214,7 @@ model Transaction {
   isManualEntry   Boolean     @default(false)
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
 
   statement       Statement   @relation(fields: [statementId], references: [id])
   annotation      Annotation?
@@ -225,6 +240,7 @@ model Annotation {
   annotatedBy       String?          // userId
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
+  deletedAt         DateTime?
 
   transaction       Transaction      @relation(fields: [transactionId], references: [id])
 }
@@ -275,4 +291,34 @@ model Subscription {
   updatedAt                DateTime @updatedAt
 
   user                     User     @relation(fields: [userId], references: [id])
+}
+
+model CreditPurchase {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  credits         Int                // number of credits purchased
+  amountPaid      BigInt             // kobo
+  paystackRef     String?  @unique   // Paystack transaction reference
+  createdAt       DateTime @default(now())
+
+  workspace       Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId])
+}
+
+model PaystackTransaction {
+  id              String   @id @default(cuid())
+  userId          String
+  reference       String   @unique   // Paystack transaction reference
+  amount          BigInt             // kobo
+  currency        String   @default("NGN")
+  status          String             // success, failed, pending
+  type            String             // workspace_unlock, credit_purchase, bank_addon
+  metadata        Json?              // extra context (workspaceId, credits, etc.)
+  paystackData    Json?              // raw Paystack webhook payload
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId])
+  @@index([reference])
 }

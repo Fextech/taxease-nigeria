@@ -1,5 +1,5 @@
 {
-    "name": "@taxease/api",
+    "name": "@banklens/api",
     "version": "0.1.0",
     "private": true,
     "scripts": {
@@ -16,7 +16,7 @@
         "@fastify/cors": "^10.0.0",
         "@fastify/helmet": "^13.0.0",
         "@prisma/client": "^6.4.0",
-        "@taxease/shared": "workspace:*",
+        "@banklens/shared": "workspace:*",
         "@trpc/server": "^11.0.0",
         "bullmq": "^5.30.0",
         "fastify": "^5.2.0",

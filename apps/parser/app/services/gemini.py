@@ -6,10 +6,13 @@ Uses the Google GenAI SDK (google-genai) for Gemini 2.0 Flash / 1.5 Pro.
 import json
 import os
 import logging
+import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
+from pydantic import BaseModel, Field
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +27,6 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 MODEL_ID = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
-
 
 # ─── System Prompt ────────────────────────────────────────
 
@@ -62,6 +64,24 @@ Return valid JSON with this exact structure:
 
 # ─── Extraction Function ─────────────────────────────────
 
+
+class TransactionSchema(BaseModel):
+    transaction_date: str
+    value_date: Optional[str] = None
+    description: str
+    credit_amount: int
+    debit_amount: int
+    balance: Optional[int] = None
+    reference: Optional[str] = None
+    channel: Optional[str] = None
+    confidence: float
+
+class StatementSchema(BaseModel):
+    bank_name: str
+    transactions: List[TransactionSchema]
+    overall_confidence: float
+    notes: Optional[str] = None
+
 async def extract_transactions(raw_text: str) -> dict:
     """
     Send raw statement text to Gemini and return structured transaction data.
@@ -84,13 +104,15 @@ async def extract_transactions(raw_text: str) -> dict:
         }
 
     try:
-        response = await client.aio.models.generate_content(
+        response = await asyncio.to_thread(
+            client.models.generate_content,
             model=MODEL_ID,
             contents=raw_text,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
                 temperature=0.1,
                 response_mime_type="application/json",
+                response_schema=StatementSchema,
             ),
         )
 

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc/trpc.js';
 import { TRPCError } from '@trpc/server';
-import { computeTax, type Relief } from '@taxease/shared';
+import { computeTax, type Relief } from '@banklens/shared';
 
 export const dashboardRouter = router({
     // ─── Overview ────────────────────────────────────────
@@ -138,6 +138,7 @@ export const dashboardRouter = router({
                     grossIncome: taxResult.grossIncome.toString(),
                     taxableIncome: taxResult.taxableIncome.toString(),
                     cra: taxResult.cra.toString(),
+                    rentRelief: taxResult.rentRelief.toString(),
                     taxLiability: taxResult.taxLiability.toString(),
                     effectiveRate: taxResult.effectiveRate,
                 },

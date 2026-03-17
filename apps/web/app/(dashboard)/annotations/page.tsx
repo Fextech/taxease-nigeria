@@ -103,16 +103,6 @@ export default function AnnotationsPage() {
   const [formCategory, setFormCategory] = useState<TaxCategory>("UNCLASSIFIED");
   const [formReason, setFormReason] = useState("");
 
-  // Load workspace
-  useEffect(() => {
-    if (activeWorkspaceId) {
-      loadData(activeWorkspaceId);
-    } else {
-      setTransactions([]);
-      setStats(null);
-    }
-  }, [activeWorkspaceId]);
-
   const loadData = useCallback(async (wsId: string) => {
     setLoading(true);
     try {
@@ -144,9 +134,18 @@ export default function AnnotationsPage() {
     }
   }, []);
 
+  // Load workspace
   useEffect(() => {
-    // Moved to the top useEffect that listens to activeWorkspaceId
-  }, [loadData]);
+    if (activeWorkspaceId) {
+      loadData(activeWorkspaceId);
+    } else {
+      setTransactions([]);
+      setStats(null);
+    }
+  }, [activeWorkspaceId, loadData]);
+
+
+
 
   // When selecting a transaction, populate the form
   useEffect(() => {
@@ -566,206 +565,6 @@ export default function AnnotationsPage() {
         )}
       </div>
 
-      <style jsx>{`
-        .annotations-page { display: flex; gap: 24px; }
-        .annotations-main { flex: 1; display: flex; flex-direction: column; gap: 20px; min-width: 0; }
-
-        /* Stats */
-        .anno-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-        .anno-stat-card {
-          background: var(--te-surface); padding: 20px; border-radius: 12px;
-          border: 1px solid rgba(35,73,77,0.05); box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-        }
-        .anno-stat-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--te-text-muted); margin: 0 0 4px; }
-        .anno-stat-value { font-size: 22px; font-weight: 700; margin: 0; }
-        .anno-stat-sub { font-size: 12px; color: var(--te-text-muted); margin: 8px 0 0; }
-        .anno-progress-bar { height: 6px; background: var(--te-border-light); border-radius: 3px; overflow: hidden; margin-top: 12px; }
-        .anno-progress-fill { height: 100%; background: var(--te-primary); border-radius: 3px; transition: width 0.4s; }
-
-        /* Monthly summary cards */
-        .month-cards-row {
-          display: grid; grid-template-columns: repeat(12, 1fr); gap: 8px;
-        }
-        .month-card {
-          display: flex; flex-direction: column; align-items: center; gap: 4px;
-          padding: 10px 4px; border-radius: 8px;
-          background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.12);
-          position: relative; text-align: center;
-        }
-        .month-card-name { font-size: 11px; font-weight: 700; color: var(--te-text); }
-        .month-card-count { font-size: 10px; color: var(--te-text-muted); }
-        .month-card-delete {
-          background: none; border: none; cursor: pointer; color: var(--te-text-muted);
-          padding: 2px; border-radius: 4px; transition: all 0.15s; line-height: 1;
-        }
-        .month-card-delete:hover { color: #dc2626; background: rgba(239,68,68,0.08); }
-
-        /* PAYE note */
-        .paye-note {
-          display: flex; align-items: flex-start; gap: 6px;
-          font-size: 11px; color: var(--te-accent); line-height: 1.5;
-          background: rgba(240,160,48,0.08); padding: 8px 10px; border-radius: 6px;
-          margin-top: -8px;
-        }
-
-        /* Enhanced Empty State */
-        .anno-empty-state {
-          padding: 80px 24px; text-align: center;
-          display: flex; flex-direction: column; align-items: center; justify-content: center;
-        }
-        .anno-empty-icon-wrap {
-          width: 64px; height: 64px; border-radius: 16px; background: rgba(35,73,77,0.08);
-          display: flex; align-items: center; justify-content: center; margin: 0 auto 20px;
-        }
-        .anno-empty-icon { font-size: 32px; color: var(--te-primary); }
-        .anno-empty-title { font-size: 18px; font-weight: 700; color: var(--te-text); margin: 0 0 8px; }
-        .anno-empty-desc { font-size: 14px; color: var(--te-text-muted); max-width: 400px; margin: 0 auto; line-height: 1.6; }
-
-        /* Table */
-        .txn-panel {
-          background: var(--te-surface); border-radius: 12px;
-          border: 1px solid rgba(35,73,77,0.05); box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-          overflow: hidden;
-        }
-        .txn-header-bar {
-          display: flex; align-items: center; justify-content: space-between;
-          border-bottom: 1px solid rgba(35,73,77,0.05); padding-right: 16px;
-        }
-        .txn-tabs { display: flex; gap: 0; }
-        .txn-tab {
-          padding: 14px 20px; font-size: 13px; font-weight: 600; color: var(--te-text-muted);
-          background: none; border: none; cursor: pointer; font-family: var(--font-sans);
-          border-bottom: 2px solid transparent; transition: all 0.15s;
-        }
-        .txn-tab:hover { color: var(--te-text); }
-        .txn-tab--active { color: var(--te-primary); border-bottom-color: var(--te-primary); }
-        .tab-count { font-size: 11px; color: var(--te-text-muted); margin-left: 4px; }
-
-        /* Credit / Debit filter */
-        .type-filter { display: flex; gap: 4px; }
-        .type-filter-btn {
-          padding: 6px 14px; border-radius: 6px; font-size: 12px; font-weight: 600;
-          border: 1px solid var(--te-border); background: var(--te-surface); color: var(--te-text-muted);
-          cursor: pointer; font-family: var(--font-sans); transition: all 0.15s;
-        }
-        .type-filter-btn:hover { border-color: var(--te-primary-light); color: var(--te-text); }
-        .type-filter-btn--active { background: var(--te-primary); color: #fff; border-color: var(--te-primary); }
-        .anno-table { width: 100%; text-align: left; border-collapse: collapse; }
-        .anno-table th {
-          padding: 12px 16px; font-size: 10px; font-weight: 700; text-transform: uppercase;
-          letter-spacing: 0.06em; color: var(--te-text-muted); background: rgba(100,116,139,0.04);
-        }
-        .anno-table td { padding: 14px 16px; font-size: 13px; border-bottom: 1px solid rgba(35,73,77,0.05); }
-        .anno-row { cursor: pointer; transition: background 0.1s; }
-        .anno-row:hover { background: var(--te-surface-hover); }
-        .anno-row--selected { background: rgba(35,73,77,0.04); }
-        .anno-checkbox { accent-color: var(--te-primary); }
-        .anno-date { font-size: 12px; font-weight: 500; color: var(--te-text-secondary); }
-        .anno-desc { display: block; font-weight: 600; color: var(--te-text); }
-        .anno-subdesc { display: block; font-size: 11px; color: var(--te-text-muted); }
-        .anno-credit { color: var(--te-primary); font-weight: 700; }
-        .anno-debit { color: #dc2626; font-weight: 600; }
-
-        .taxable-toggle {
-          width: 36px; height: 20px; border-radius: 10px; background: var(--te-border);
-          position: relative; cursor: pointer; transition: background 0.2s;
-        }
-        .taxable-toggle--on { background: var(--te-primary); }
-        .taxable-toggle-dot {
-          width: 16px; height: 16px; border-radius: 50%; background: #fff;
-          position: absolute; top: 2px; left: 2px; transition: transform 0.2s;
-          box-shadow: 0 1px 3px rgba(0,0,0,0.15);
-        }
-        .taxable-toggle--on .taxable-toggle-dot { transform: translateX(16px); }
-
-        .anno-status { font-size: 10px; font-weight: 700; padding: 4px 8px; border-radius: 4px; }
-        .anno-status--unannotated { background: rgba(245,158,11,0.1); color: #b45309; }
-        .anno-status--complete { background: rgba(16,185,129,0.1); color: #047857; }
-        .anno-status--in_progress { background: rgba(59,130,246,0.1); color: #1d4ed8; }
-        .anno-status--flagged { background: rgba(239,68,68,0.1); color: #b91c1c; }
-
-        .status-spin { animation: spin 1.5s linear infinite; }
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-
-        /* Annotation Panel */
-        .anno-panel {
-          width: 340px; min-width: 340px; background: var(--te-surface);
-          border-radius: 12px; border: 1px solid rgba(35,73,77,0.05);
-          box-shadow: 0 1px 3px rgba(0,0,0,0.04); overflow: hidden; align-self: flex-start;
-          position: sticky; top: calc(var(--te-header-height) + 32px);
-        }
-        .anno-panel-header {
-          display: flex; justify-content: space-between; align-items: center;
-          padding: 16px 20px; border-bottom: 1px solid rgba(35,73,77,0.05);
-        }
-        .anno-panel-title-row { display: flex; align-items: center; gap: 8px; }
-        .anno-panel-title { font-size: 15px; font-weight: 700; color: var(--te-text); }
-        .anno-panel-close { background: none; border: none; color: var(--te-text-muted); cursor: pointer; }
-        .anno-panel-close:hover { color: var(--te-text); }
-        .anno-panel-body { padding: 20px; display: flex; flex-direction: column; gap: 20px; }
-        .anno-panel-section { display: flex; flex-direction: column; gap: 6px; }
-        .anno-panel-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--te-text-muted); margin: 0; }
-        .anno-panel-txn-name { font-size: 15px; font-weight: 700; color: var(--te-text); margin: 0; }
-        .anno-panel-txn-amount { font-size: 20px; font-weight: 700; color: var(--te-primary); margin: 0; }
-        .anno-panel-options { display: flex; gap: 8px; }
-        .anno-option {
-          flex: 1; padding: 8px; border-radius: 6px; border: 1px solid var(--te-border);
-          background: var(--te-surface); font-size: 13px; font-weight: 600; color: var(--te-text-secondary);
-          cursor: pointer; font-family: var(--font-sans); transition: all 0.15s;
-        }
-        .anno-option:hover { border-color: var(--te-primary-light); }
-        .anno-option--active { background: var(--te-primary); color: #fff; border-color: var(--te-primary); }
-
-        /* Expense status (debit) buttons — dark red style */
-        .expense-option { border-color: rgba(153,27,27,0.25); color: #991b1b; }
-        .expense-option:hover { border-color: #991b1b; background: rgba(153,27,27,0.05); }
-        .expense-option--active { background: #991b1b; color: #fff; border-color: #991b1b; }
-
-        .dbe-note {
-          display: flex; align-items: center; gap: 6px;
-          font-size: 11px; color: var(--te-text-muted); margin-top: 8px;
-          background: rgba(153,27,27,0.06); padding: 6px 10px; border-radius: 6px;
-        }
-        .anno-panel-input, .anno-panel-select, .anno-panel-textarea {
-          width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--te-border);
-          background: var(--te-surface); font-size: 14px; color: var(--te-text);
-          font-family: var(--font-sans); transition: border-color 0.15s;
-        }
-        .anno-panel-input:focus, .anno-panel-select:focus, .anno-panel-textarea:focus {
-          outline: none; border-color: var(--te-primary);
-        }
-        .anno-panel-textarea { resize: vertical; }
-
-        .ai-suggest {
-          display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 500;
-          color: var(--te-mint); margin-top: 4px;
-        }
-
-        .anno-complete-btn {
-          display: flex; align-items: center; justify-content: center; gap: 8px;
-          width: 100%; padding: 12px; border-radius: 8px; background: var(--te-primary);
-          color: #fff; font-size: 14px; font-weight: 700; border: none;
-          cursor: pointer; font-family: var(--font-sans); transition: background 0.15s;
-        }
-        .anno-complete-btn:hover { background: var(--te-primary-light); }
-        .anno-complete-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-        .anno-panel-actions { display: flex; gap: 8px; }
-        .anno-secondary-btn {
-          flex: 1; padding: 10px; border-radius: 8px; border: 1px solid var(--te-border);
-          background: var(--te-surface); font-size: 13px; font-weight: 600; color: var(--te-text-secondary);
-          cursor: pointer; font-family: var(--font-sans); transition: all 0.15s;
-        }
-        .anno-secondary-btn:hover { background: var(--te-surface-hover); }
-        .anno-secondary-btn:disabled { opacity: 0.6; cursor: not-allowed; }
-
-        @media (max-width: 1024px) {
-          .annotations-page { flex-direction: column; }
-          .anno-panel { width: 100%; min-width: 0; position: static; }
-        }
-        @media (max-width: 768px) {
-          .anno-stats { grid-template-columns: 1fr; }
-        }
-      `}</style>
     </>
   );
 }
