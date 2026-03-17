@@ -33,6 +33,7 @@ export async function POST(request: Request) {
                     status: 'COMPLETE',
                     taxableStatus: { in: ['YES', 'PARTIAL'] },
                     transaction: { statement: { workspaceId: data.workspaceId } },
+                    deletedAt: null,
                 },
                 select: {
                     taxableStatus: true,
@@ -68,7 +69,10 @@ export async function POST(request: Request) {
 
             // 2. Monthly Distribution
             const transactions = await prisma.transaction.findMany({
-                where: { statement: { workspaceId: data.workspaceId } },
+                where: { 
+                    statement: { workspaceId: data.workspaceId },
+                    deletedAt: null,
+                },
                 select: {
                     creditAmount: true,
                     statement: { select: { month: true } },
@@ -96,7 +100,10 @@ export async function POST(request: Request) {
 
             // 3. Recent Transactions
             const recentTxns = await prisma.transaction.findMany({
-                where: { statement: { workspaceId: data.workspaceId } },
+                where: { 
+                    statement: { workspaceId: data.workspaceId },
+                    deletedAt: null,
+                },
                 orderBy: { transactionDate: 'desc' },
                 take: 5,
                 select: {
@@ -113,7 +120,10 @@ export async function POST(request: Request) {
 
             // 4. Compliance
             const statements = await prisma.statement.findMany({
-                where: { workspaceId: data.workspaceId },
+                where: { 
+                    workspaceId: data.workspaceId,
+                    deletedAt: null,
+                },
                 select: { month: true, parseStatus: true },
             });
 
@@ -133,12 +143,16 @@ export async function POST(request: Request) {
 
             // 5. Stats
             const totalTxnCount = await prisma.transaction.count({
-                where: { statement: { workspaceId: data.workspaceId } },
+                where: { 
+                    statement: { workspaceId: data.workspaceId },
+                    deletedAt: null,
+                },
             });
             const annotatedCount = await prisma.annotation.count({
                 where: {
                     status: 'COMPLETE',
                     transaction: { statement: { workspaceId: data.workspaceId } },
+                    deletedAt: null,
                 },
             });
 

@@ -33,6 +33,7 @@ export async function POST(request: Request) {
 
             const whereClause: Record<string, unknown> = {
                 statement: { workspaceId: data.workspaceId },
+                deletedAt: null,
             };
             if (data.month) {
                 whereClause.statement = { workspaceId: data.workspaceId, month: data.month };
@@ -96,13 +97,17 @@ export async function POST(request: Request) {
             }
 
             const totalCount = await prisma.transaction.count({
-                where: { statement: { workspaceId: data.workspaceId } },
+                where: { 
+                    statement: { workspaceId: data.workspaceId },
+                    deletedAt: null,
+                },
             });
 
             const annotatedCount = await prisma.annotation.count({
                 where: {
                     status: 'COMPLETE',
                     transaction: { statement: { workspaceId: data.workspaceId } },
+                    deletedAt: null,
                 },
             });
 
@@ -113,8 +118,9 @@ export async function POST(request: Request) {
                     taxableStatus: { in: ['YES', 'PARTIAL'] },
                     transaction: {
                         statement: { workspaceId: data.workspaceId },
-                        creditAmount: { gt: 0 },     // only credit rows
+                        creditAmount: { gt: 0 },
                     },
+                    deletedAt: null,
                 },
                 select: {
                     taxableStatus: true,
@@ -136,11 +142,12 @@ export async function POST(request: Request) {
             const dbeAnnotations = await prisma.annotation.findMany({
                 where: {
                     status: 'COMPLETE',
-                    taxableStatus: 'YES',            // DBE mapped to YES
+                    taxableStatus: 'YES',
                     transaction: {
                         statement: { workspaceId: data.workspaceId },
-                        debitAmount: { gt: 0 },       // only debit rows
+                        debitAmount: { gt: 0 },
                     },
+                    deletedAt: null,
                 },
                 select: {
                     transaction: { select: { debitAmount: true } },
@@ -288,11 +295,13 @@ export async function POST(request: Request) {
             }
 
             // Soft-delete annotations → transactions for this statement
-            await (prisma.annotation as unknown as { softDeleteMany: (args: { where: unknown }) => Promise<unknown> }).softDeleteMany({
+            await prisma.annotation.updateMany({
                 where: { transaction: { statementId: statement.id } },
+                data: { deletedAt: new Date() },
             });
-            await (prisma.transaction as unknown as { softDeleteMany: (args: { where: unknown }) => Promise<unknown> }).softDeleteMany({
+            await prisma.transaction.updateMany({
                 where: { statementId: statement.id },
+                data: { deletedAt: new Date() },
             });
 
             return NextResponse.json({ success: true, month: data.month });
