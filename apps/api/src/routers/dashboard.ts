@@ -22,6 +22,7 @@ export const dashboardRouter = router({
                     status: 'COMPLETE',
                     taxableStatus: { in: ['YES', 'PARTIAL'] },
                     transaction: { statement: { workspaceId: input.workspaceId } },
+                    deletedAt: null,
                 },
                 select: {
                     taxableStatus: true,
@@ -57,7 +58,10 @@ export const dashboardRouter = router({
 
             // ── 2. Monthly Income Distribution ──────────────
             const transactions = await ctx.prisma.transaction.findMany({
-                where: { statement: { workspaceId: input.workspaceId } },
+                where: { 
+                    statement: { workspaceId: input.workspaceId },
+                    deletedAt: null,
+                },
                 select: {
                     creditAmount: true,
                     statement: { select: { month: true } },
@@ -86,7 +90,10 @@ export const dashboardRouter = router({
 
             // ── 3. Recent Transactions ──────────────────────
             const recentTxns = await ctx.prisma.transaction.findMany({
-                where: { statement: { workspaceId: input.workspaceId } },
+                where: { 
+                    statement: { workspaceId: input.workspaceId },
+                    deletedAt: null,
+                },
                 orderBy: { transactionDate: 'desc' },
                 take: 5,
                 select: {
@@ -103,7 +110,10 @@ export const dashboardRouter = router({
 
             // ── 4. Compliance (which months have statements) ─
             const statements = await ctx.prisma.statement.findMany({
-                where: { workspaceId: input.workspaceId },
+                where: { 
+                    workspaceId: input.workspaceId,
+                    deletedAt: null,
+                },
                 select: { month: true, parseStatus: true },
             });
 
@@ -123,12 +133,16 @@ export const dashboardRouter = router({
 
             // ── 5. Annotation stats ─────────────────────────
             const totalTxnCount = await ctx.prisma.transaction.count({
-                where: { statement: { workspaceId: input.workspaceId } },
+                where: { 
+                    statement: { workspaceId: input.workspaceId },
+                    deletedAt: null,
+                },
             });
             const annotatedCount = await ctx.prisma.annotation.count({
                 where: {
                     status: 'COMPLETE',
                     transaction: { statement: { workspaceId: input.workspaceId } },
+                    deletedAt: null,
                 },
             });
 

@@ -164,8 +164,14 @@ export async function POST(request: Request) {
 
         } else if (action === 'list') {
             const statements = await prisma.statement.findMany({
-                where: { workspaceId: data.workspaceId },
-                orderBy: { month: 'asc' },
+                where: { 
+                    workspaceId: data.workspaceId,
+                    deletedAt: null 
+                },
+                orderBy: [
+                    { month: 'asc' },
+                    { createdAt: 'desc' }
+                ],
                 select: {
                     id: true,
                     month: true,

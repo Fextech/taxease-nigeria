@@ -203,7 +203,10 @@ export const statementsRouter = router({
             }
 
             return ctx.prisma.statement.findMany({
-                where: { workspaceId: input.workspaceId },
+                where: { 
+                    workspaceId: input.workspaceId,
+                    deletedAt: null 
+                },
                 orderBy: { month: 'asc' },
                 select: {
                     id: true,
