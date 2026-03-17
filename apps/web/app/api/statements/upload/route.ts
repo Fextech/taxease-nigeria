@@ -206,15 +206,18 @@ export async function POST(request: Request) {
                 // Continue with DB deletion even if S3 fails
             }
 
-            // Soft-delete cascade (preserves records for audit trail)
-            await (prisma.annotation as unknown as { softDeleteMany: (args: { where: unknown }) => Promise<unknown> }).softDeleteMany({
+            // Soft-delete cascade using standard Prisma updates (preserves records for audit trail)
+            await prisma.annotation.updateMany({
                 where: { transaction: { statementId: data.statementId } },
+                data: { deletedAt: new Date() }
             });
-            await (prisma.transaction as unknown as { softDeleteMany: (args: { where: unknown }) => Promise<unknown> }).softDeleteMany({
+            await prisma.transaction.updateMany({
                 where: { statementId: data.statementId },
+                data: { deletedAt: new Date() }
             });
-            await (prisma.statement as unknown as { softDelete: (args: { where: unknown }) => Promise<unknown> }).softDelete({
+            await prisma.statement.update({
                 where: { id: data.statementId },
+                data: { deletedAt: new Date() }
             });
 
             return NextResponse.json({ success: true });

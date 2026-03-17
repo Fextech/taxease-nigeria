@@ -273,16 +273,17 @@ export const statementsRouter = router({
             }
 
             // Soft-delete cascade (preserves records for audit trail)
-            await (ctx.prisma.annotation as unknown as { softDeleteMany: (args: unknown) => Promise<unknown> }).softDeleteMany({
-                where: {
-                    transaction: { statementId: input.statementId },
-                },
+            await ctx.prisma.annotation.updateMany({
+                where: { transaction: { statementId: input.statementId } },
+                data: { deletedAt: new Date() },
             });
-            await (ctx.prisma.transaction as unknown as { softDeleteMany: (args: unknown) => Promise<unknown> }).softDeleteMany({
+            await ctx.prisma.transaction.updateMany({
                 where: { statementId: input.statementId },
+                data: { deletedAt: new Date() },
             });
-            await (ctx.prisma.statement as unknown as { softDelete: (args: unknown) => Promise<unknown> }).softDelete({
+            await ctx.prisma.statement.update({
                 where: { id: input.statementId },
+                data: { deletedAt: new Date() },
             });
 
             await logAction({
