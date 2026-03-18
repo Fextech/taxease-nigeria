@@ -3,6 +3,9 @@
     "globalDependencies": [
         ".env"
     ],
+    "globalEnv": [
+        "NODE_ENV"
+    ],
     "tasks": {
         "dev": {
             "cache": false,
@@ -11,6 +14,26 @@
         "build": {
             "dependsOn": [
                 "^build"
+            ],
+            "env": [
+                "AUTH_SECRET",
+                "NEXTAUTH_URL",
+                "AUTH_URL",
+                "GOOGLE_CLIENT_ID",
+                "GOOGLE_CLIENT_SECRET",
+                "MFA_ENCRYPTION_KEY",
+                "RESEND_API_KEY",
+                "EMAIL_FROM",
+                "NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY",
+                "NEXT_PUBLIC_API_URL",
+                "DATABASE_URL",
+                "DATABASE_URL_UNPOOLED",
+                "REDIS_URL",
+                "AWS_REGION",
+                "AWS_ACCESS_KEY_ID",
+                "AWS_SECRET_ACCESS_KEY",
+                "AWS_S3_BUCKET_NAME",
+                "AWS_S3_REPORTS_BUCKET"
             ],
             "outputs": [
                 ".next/**",
