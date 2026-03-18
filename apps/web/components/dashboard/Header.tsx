@@ -15,6 +15,21 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
   const [isCreating, setIsCreating] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
 
+  // Support Modal State
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [supportSubject, setSupportSubject] = useState("");
+  const [supportCategory, setSupportCategory] = useState("Parsing Error");
+  const [supportMessage, setSupportMessage] = useState("");
+  const [isSubmittingSupport, setIsSubmittingSupport] = useState(false);
+
+  // Toast State
+  const [toastMsg, setToastMsg] = useState<{ text: string, type: "success" | "error" } | null>(null);
+
+  const showToast = (text: string, type: "success" | "error" = "success") => {
+    setToastMsg({ text, type });
+    setTimeout(() => setToastMsg(null), 4000);
+  };
+
   const profileRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -82,7 +97,7 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
     if (!yearStr) return;
     const year = parseInt(yearStr, 10);
     if (isNaN(year) || year < 2020 || year > 2030) {
-      alert("Invalid year. Must be between 2020 and 2030.");
+      showToast("Invalid year. Must be between 2020 and 2030.", "error");
       return;
     }
 
@@ -99,13 +114,50 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
         await refresh();
         setActiveWorkspaceId(data.id);
         setWorkspaceOpen(false);
+        showToast(`Tax Year ${year} workspace created!`, "success");
         router.refresh(); // Force Next.js to drop its router cache
       } else {
         const err = await res.json();
-        alert(err.error || "Failed to create workspace");
+        showToast(err.error || "Failed to create workspace", "error");
       }
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleSupportSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supportSubject.trim() || !supportMessage.trim()) {
+      showToast("Please fill in all fields.", "error");
+      return;
+    }
+    
+    setIsSubmittingSupport(true);
+    try {
+      const res = await fetch("/api/support", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          subject: supportSubject,
+          category: supportCategory,
+          message: supportMessage
+        })
+      });
+
+      if (res.ok) {
+        showToast("Support request submitted successfully. Our team will get back to you soon!", "success");
+        setSupportOpen(false);
+        setSupportSubject("");
+        setSupportCategory("Parsing Error");
+        setSupportMessage("");
+      } else {
+        const err = await res.json();
+        showToast(err.error || "Failed to submit support request.", "error");
+      }
+    } catch {
+      showToast("A network error occurred.", "error");
+    } finally {
+      setIsSubmittingSupport(false);
     }
   };
 
@@ -116,6 +168,24 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
 
   return (
     <>
+      {/* Toast Notification */}
+      {toastMsg && (
+        <div style={{
+          position: "fixed", top: "24px", left: "50%", transform: "translateX(-50%)",
+          zIndex: 9999, padding: "12px 20px", borderRadius: "8px",
+          background: toastMsg.type === "success" ? "#10b981" : "#ef4444",
+          color: "white", fontWeight: 500, fontSize: "14px",
+          boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1)",
+          display: "flex", alignItems: "center", gap: "8px",
+          animation: "slideDown 0.3s ease-out forwards"
+        }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 20 }}>
+            {toastMsg.type === "success" ? "check_circle" : "error"}
+          </span>
+          {toastMsg.text}
+        </div>
+      )}
+
       <header className="dash-header">
         <div className="dash-header-left">
           <h2 className="dash-header-title">{title}</h2>
@@ -171,6 +241,16 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
         </div>
 
         <div className="dash-header-right">
+          {/* Support Button */}
+          <button 
+            className="dash-notif-btn" 
+            onClick={() => setSupportOpen(true)}
+            aria-label="Support"
+            style={{ marginRight: "-8px" }}
+          >
+            <span className="material-symbols-outlined">support_agent</span>
+          </button>
+
           {/* Notifications */}
           <div className="dash-profile-wrap" ref={notifRef}>
             <button 
@@ -284,6 +364,92 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
           </div>
         </div>
       </header>
+
+      {/* Support Modal */}
+      {supportOpen && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: "500px" }}>
+            <div className="modal-header">
+              <span className="material-symbols-outlined" style={{ fontSize: 24, color: "var(--te-primary)" }}>support_agent</span>
+              <h3 className="modal-title">Contact Support</h3>
+            </div>
+            <p className="modal-desc" style={{ marginBottom: "20px" }}>
+              Need help? Fill out the form below and our support team will get back to you as soon as possible.
+            </p>
+            
+            <form onSubmit={handleSupportSubmit} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "var(--te-text-secondary)", marginBottom: "6px" }}>
+                  Subject
+                </label>
+                <input
+                  type="text"
+                  className="modal-input"
+                  placeholder="Briefly describe your issue"
+                  value={supportSubject}
+                  onChange={(e) => setSupportSubject(e.target.value)}
+                  disabled={isSubmittingSupport}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "var(--te-text-secondary)", marginBottom: "6px" }}>
+                  Category
+                </label>
+                <select
+                  className="modal-input"
+                  value={supportCategory}
+                  onChange={(e) => setSupportCategory(e.target.value)}
+                  disabled={isSubmittingSupport}
+                  style={{ cursor: "pointer", appearance: "auto" }}
+                >
+                  <option value="Parsing Error">Parsing Error</option>
+                  <option value="Account">Account</option>
+                  <option value="Billing">Billing</option>
+                  <option value="Filing Question">Filing Question</option>
+                  <option value="Feature Request">Feature Request</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "var(--te-text-secondary)", marginBottom: "6px" }}>
+                  Message
+                </label>
+                <textarea
+                  className="modal-input"
+                  placeholder="Provide details about your inquiry..."
+                  value={supportMessage}
+                  onChange={(e) => setSupportMessage(e.target.value)}
+                  rows={4}
+                  disabled={isSubmittingSupport}
+                  style={{ resize: "vertical", minHeight: "100px" }}
+                  required
+                />
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: "8px" }}>
+                <button
+                  type="button"
+                  className="modal-btn-cancel"
+                  onClick={() => setSupportOpen(false)}
+                  disabled={isSubmittingSupport}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="modal-btn-confirm"
+                  disabled={isSubmittingSupport}
+                >
+                  {isSubmittingSupport ? "Submitting..." : "Submit request"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </>
   );
