@@ -2,6 +2,15 @@ import { Worker, Job } from 'bullmq';
 import pino from 'pino';
 import { PrismaClient } from '@prisma/client';
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
+import puppeteer from 'puppeteer';
+import { Resend } from 'resend';
+import Handlebars from 'handlebars';
+import fs from 'fs';
+import path from 'path';
+import { computeTax, type Relief } from '@banklens/shared';
+
+const resendClient = new Resend(process.env.RESEND_API_KEY);
+const FROM_EMAIL = process.env.EMAIL_FROM || "Banklens Nigeria <onboarding@resend.dev>";
 
 const logger = pino({
     transport: {
@@ -67,6 +76,70 @@ async function downloadFromS3(key: string): Promise<Buffer> {
         chunks.push(chunk);
     }
     return Buffer.concat(chunks);
+}
+
+function formatKobo(koboVal: bigint | number): string {
+    const naira = Number(koboVal) / 100;
+    return new Intl.NumberFormat('en-NG', {
+        style: 'currency',
+        currency: 'NGN',
+        minimumFractionDigits: 2,
+    }).format(naira);
+}
+
+function organizeTransactionsByMonth(transactions: any[]) {
+    const months = new Map<string, any>();
+
+    for (const tx of transactions) {
+        const date = new Date(tx.transactionDate);
+        const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+        const monthName = date.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+        if (!months.has(monthKey)) {
+            months.set(monthKey, {
+                monthName,
+                grossIncome: 0n,
+                directBusinessExpenses: 0n,
+                otherExpenses: 0n,
+                taxableIncome: 0n,
+                transactions: []
+            });
+        }
+
+        const monthData = months.get(monthKey);
+
+        const isCredit = tx.creditAmount > 0n;
+        const amount = isCredit ? tx.creditAmount : tx.debitAmount;
+        const taxableStatus = tx.annotation?.taxableStatus || 'NO';
+        const isTaxable = taxableStatus === 'YES';
+        const taxableAmount = tx.annotation?.taxableAmount || amount;
+
+        if (isCredit && isTaxable) monthData.grossIncome += taxableAmount;
+        if (!isCredit && isTaxable) monthData.directBusinessExpenses += taxableAmount;
+        if (!isCredit && !isTaxable) monthData.otherExpenses += amount;
+
+        // Only show income (credits) and direct business expenses (taxable debits) in the table
+        const isDirectBusinessExpense = !isCredit && isTaxable;
+        if (isCredit || isDirectBusinessExpense) {
+            monthData.transactions.push({
+                date: date.toLocaleDateString(),
+                description: tx.description,
+                amount: formatKobo(amount),
+                isCredit,
+                taxable: taxableStatus,
+                reason: tx.annotation?.reason || '-'
+            });
+        }
+    }
+
+    // Format totals
+    return Array.from(months.values()).map(m => ({
+        ...m,
+        grossIncome: formatKobo(m.grossIncome),
+        directBusinessExpenses: formatKobo(m.directBusinessExpenses),
+        otherExpenses: formatKobo(m.otherExpenses),
+        taxableIncome: formatKobo(m.grossIncome > m.directBusinessExpenses ? m.grossIncome - m.directBusinessExpenses : 0n)
+    }));
 }
 
 async function sendToParser(fileBuffer: Buffer, filename: string, mimeType: string, password?: string): Promise<ParserResponse> {
@@ -217,8 +290,8 @@ const parseStatementWorker = new Worker(
             throw error; // Re-throw so BullMQ retries
         }
     },
-    { 
-        connection: redisConnection, 
+    {
+        connection: redisConnection,
         concurrency: 3,
         // Gemini can take several minutes for large bank statements.
         // Increase lock duration so BullMQ doesn't mark the job as stalled.
@@ -232,9 +305,107 @@ const parseStatementWorker = new Worker(
 const generateReportWorker = new Worker(
     'generate-report',
     async (job) => {
-        logger.info({ jobId: job.id, data: job.data }, '📊 Processing generate-report job');
-        // Stub processor — will be implemented in Phase 7
-        logger.info({ jobId: job.id }, '✅ Generate-report job completed (stub)');
+        const { workspaceId, userId, userEmail, taxYear } = job.data;
+        logger.info({ jobId: job.id, workspaceId }, '📊 Processing generate-report job');
+
+        try {
+            // 1. Fetch data
+            const user = await prisma.user.findUnique({ where: { id: userId } });
+            const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+
+            if (!user || !workspace) throw new Error('User or Workspace not found');
+
+            const allTransactions = await prisma.transaction.findMany({
+                where: { deletedAt: null, statement: { workspaceId } },
+                include: { annotation: true },
+                orderBy: { transactionDate: 'asc' }
+            });
+
+            // 2. Compute Top Level Summaries
+            let grossIncome = 0n;
+            let directBusinessExpenses = 0n;
+            let otherExpenses = 0n;
+            let totalInflow = 0n;
+
+            for (const tx of allTransactions) {
+                const isCredit = tx.creditAmount > 0n;
+                const amount = isCredit ? tx.creditAmount : tx.debitAmount;
+                const isTaxable = tx.annotation?.taxableStatus === 'YES';
+                const taxableAmount = tx.annotation?.taxableAmount || amount;
+
+                if (isCredit) {
+                    totalInflow += amount;
+                    if (isTaxable) grossIncome += taxableAmount;
+                } else {
+                    if (isTaxable) directBusinessExpenses += taxableAmount;
+                    else otherExpenses += amount;
+                }
+            }
+
+            const rawDeductions = job.data.additionalDeductions !== undefined ? job.data.additionalDeductions : workspace.additionalDeductions;
+            const additionalDeductions = Array.isArray(rawDeductions) ? rawDeductions as { label: string; amount: string }[] : [];
+            const reliefs: Relief[] = additionalDeductions.map(d => ({
+                label: d.label || 'Additional Deduction',
+                amount: BigInt(Math.max(0, parseInt(d.amount, 10) || 0))
+            }));
+
+            const taxResult = computeTax({
+                grossIncome,
+                reliefs,
+                taxYear: workspace.taxYear,
+                annualRentPaid: job.data.annualRentPaid ? BigInt(job.data.annualRentPaid) : (workspace.annualRentAmount || undefined)
+            });
+
+            const templateData = {
+                taxYear: workspace.taxYear,
+                userName: user.name || user.email,
+                professionalCategory: user.professionalCategory || 'N/A',
+                tin: 'Not Provided',
+                grossIncome: formatKobo(grossIncome),
+                taxLiability: formatKobo(taxResult.taxLiability),
+                totalInflow: formatKobo(totalInflow),
+                directBusinessExpenses: formatKobo(directBusinessExpenses),
+                otherExpenses: formatKobo(otherExpenses),
+                taxableIncome: formatKobo(taxResult.taxableIncome),
+                totalRelief: formatKobo(taxResult.totalReliefs + taxResult.cra + taxResult.rentRelief),
+                months: organizeTransactionsByMonth(allTransactions),
+                generatedAt: new Date().toLocaleString(),
+                currentYear: new Date().getFullYear(),
+            };
+
+            // 3. Render HTML
+            const templatePath = path.join(__dirname, 'templates', 'report.hbs');
+            const templateSource = fs.readFileSync(templatePath, 'utf8');
+            const template = Handlebars.compile(templateSource);
+            const html = template(templateData);
+
+            // 4. Generate PDF
+            const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+            const page = await browser.newPage();
+            await page.setContent(html, { waitUntil: 'networkidle0' });
+            const pdfUint8Array = await page.pdf({ format: 'A4', printBackground: true });
+            const pdfBuffer = Buffer.from(pdfUint8Array);
+            await browser.close();
+
+            // 5. Send Email
+            await resendClient.emails.send({
+                from: FROM_EMAIL,
+                to: userEmail,
+                subject: `Your Banklens Self Assessment Report - ${workspace.taxYear}`,
+                text: 'Please find attached your self assessment tax report generated by Banklens Nigeria.',
+                attachments: [
+                    {
+                        filename: `Banklens_Tax_Report_${workspace.taxYear}.pdf`,
+                        content: pdfBuffer,
+                    }
+                ]
+            });
+
+            logger.info({ jobId: job.id, workspaceId }, '✅ Generate-report job completed successfully');
+        } catch (error) {
+            logger.error({ jobId: job.id, workspaceId, error }, '❌ Generate-report job failed');
+            throw error;
+        }
     },
     { connection: redisConnection, concurrency: 2 }
 );

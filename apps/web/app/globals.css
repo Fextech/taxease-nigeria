@@ -1039,7 +1039,7 @@
 .annotations-main { flex: 1; display: flex; flex-direction: column; gap: 20px; min-width: 0; }
 
 /* Stats */
-.anno-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.anno-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
 .anno-stat-card {
   background: var(--te-surface); padding: 20px; border-radius: 12px;
   border: 1px solid rgba(35,73,77,0.05); box-shadow: 0 1px 3px rgba(0,0,0,0.04);
@@ -1229,6 +1229,7 @@
 @media (max-width: 1024px) {
   .annotations-page { flex-direction: column; }
   .anno-panel { width: 100%; min-width: 0; position: static; }
+  .anno-stats { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 768px) {
   .anno-stats { grid-template-columns: 1fr; }
@@ -1515,8 +1516,8 @@
 }
 .settings-card-header { display: flex; align-items: center; gap: 16px; margin-bottom: 28px; }
 .settings-card-icon {
-  font-size: 24px; color: var(--te-primary);
-  width: 48px; height: 48px; border-radius: 12px;
+  color: var(--te-primary);
+  width: 48px; height: 48px; border-radius: 12px; flex-shrink: 0;
   background: rgba(35,73,77,0.08); display: flex; align-items: center; justify-content: center;
 }
 .settings-card-title { font-size: 20px; font-weight: 700; color: var(--te-text); margin: 0; }

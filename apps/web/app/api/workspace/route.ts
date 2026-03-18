@@ -24,9 +24,13 @@ export async function POST(request: Request) {
             const workspaces = await prisma.workspace.findMany({
                 where: { userId: session.user.id },
                 orderBy: { taxYear: 'desc' },
-                select: { id: true, taxYear: true, status: true, isUnlocked: true, statementCredits: true, allowedBanksCount: true },
+                select: { id: true, taxYear: true, status: true, isUnlocked: true, statementCredits: true, allowedBanksCount: true, additionalDeductions: true, annualRentAmount: true },
             });
-            return NextResponse.json(workspaces);
+            const serializedWorkspaces = workspaces.map(w => ({
+                ...w,
+                annualRentAmount: w.annualRentAmount ? w.annualRentAmount.toString() : null,
+            }));
+            return NextResponse.json(serializedWorkspaces);
         }
 
         if (action === 'create') {
@@ -51,10 +55,14 @@ export async function POST(request: Request) {
                     userId: session.user.id,
                     taxYear: data.taxYear,
                 },
-                select: { id: true, taxYear: true, status: true, isUnlocked: true, statementCredits: true, allowedBanksCount: true },
+                select: { id: true, taxYear: true, status: true, isUnlocked: true, statementCredits: true, allowedBanksCount: true, additionalDeductions: true, annualRentAmount: true },
             });
 
-            return NextResponse.json(workspace);
+            const serializedWorkspace = {
+                ...workspace,
+                annualRentAmount: workspace.annualRentAmount ? workspace.annualRentAmount.toString() : null,
+            };
+            return NextResponse.json(serializedWorkspace);
         }
 
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });

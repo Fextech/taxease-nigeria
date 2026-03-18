@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 // ─── Enums (mirroring Prisma enums) ──────────────────────
-export const taxableStatusSchema = z.enum(['YES', 'NO', 'PARTIAL']);
+export const taxableStatusSchema = z.enum(['YES', 'NO']);
 export type TaxableStatus = z.infer<typeof taxableStatusSchema>;
 
 export const taxCategorySchema = z.enum([
@@ -34,19 +34,7 @@ const annotationBaseSchema = z.object({
     notes: z.string().max(2000).optional(),
 });
 
-export const createAnnotationSchema = annotationBaseSchema.refine(
-    (data) => {
-        // If PARTIAL, taxableAmount must be provided
-        if (data.taxableStatus === 'PARTIAL' && data.taxableAmount === undefined) {
-            return false;
-        }
-        return true;
-    },
-    {
-        message: 'Taxable amount is required when status is PARTIAL',
-        path: ['taxableAmount'],
-    }
-);
+export const createAnnotationSchema = annotationBaseSchema;
 
 export type CreateAnnotationInput = z.infer<typeof createAnnotationSchema>;
 

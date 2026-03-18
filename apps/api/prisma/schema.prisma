@@ -159,6 +159,7 @@ model Workspace {
 
   // ── Tax Data ──────────────────────────────────────────
   annualRentAmount   BigInt?         // Annual rent paid (kobo) — used for 2026+ rent relief
+  additionalDeductions Json?         // Array of { label: string, amount: string } for manual deductions
 
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt

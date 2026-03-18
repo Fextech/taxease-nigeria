@@ -33,7 +33,8 @@ function SettingsContent() {
   const searchParams = useSearchParams();
 
   // Tab
-  const [activeTab, setActiveTab] = useState<Tab>("profile");
+  const initialTab = (searchParams.get("tab") as Tab) || "profile";
+  const [activeTab, setActiveTab] = useState<Tab>(initialTab);
 
   // Profile state
   const [profileLoading, setProfileLoading] = useState(true);
@@ -283,7 +284,9 @@ function SettingsContent() {
         {activeTab === "profile" && (
           <div className="settings-card">
             <div className="settings-card-header">
-              <span className="material-symbols-outlined settings-card-icon">manage_accounts</span>
+              <div className="settings-card-icon">
+                <span className="material-symbols-outlined" style={{ fontSize: 24 }}>manage_accounts</span>
+              </div>
               <div>
                 <h2 className="settings-card-title">Account Settings</h2>
                 <p className="settings-card-desc">Manage your personal information and preferences</p>
@@ -358,7 +361,9 @@ function SettingsContent() {
         {activeTab === "security" && (
           <div className="settings-card">
             <div className="settings-card-header">
-              <span className="material-symbols-outlined settings-card-icon">shield</span>
+              <div className="settings-card-icon">
+                <span className="material-symbols-outlined" style={{ fontSize: 24 }}>shield</span>
+              </div>
               <div>
                 <h2 className="settings-card-title">Security Settings</h2>
                 <p className="settings-card-desc">Manage your account security preferences</p>
@@ -475,7 +480,9 @@ function SettingsContent() {
         {activeTab === "billing" && (
           <div className="settings-card">
             <div className="settings-card-header">
-              <span className="material-symbols-outlined settings-card-icon" style={{ background: "rgba(16,185,129,0.1)", color: "var(--te-mint)" }}>credit_card</span>
+              <div className="settings-card-icon" style={{ background: "rgba(16,185,129,0.1)", color: "var(--te-mint)" }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 24 }}>credit_card</span>
+              </div>
               <div>
                 <h2 className="settings-card-title">Billing & Credits</h2>
                 <p className="settings-card-desc">Manage your workspace subscription and statement credits</p>

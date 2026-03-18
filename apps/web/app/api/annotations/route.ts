@@ -115,7 +115,7 @@ export async function POST(request: Request) {
             const taxableAnnotations = await prisma.annotation.findMany({
                 where: {
                     status: 'COMPLETE',
-                    taxableStatus: { in: ['YES', 'PARTIAL'] },
+                    taxableStatus: 'YES',
                     transaction: {
                         statement: { workspaceId: data.workspaceId },
                         creditAmount: { gt: 0 },
@@ -129,13 +129,9 @@ export async function POST(request: Request) {
                 },
             });
 
-            let totalTaxableKobo = BigInt(0);
+            let totalIncomeKobo = BigInt(0);
             for (const ann of taxableAnnotations) {
-                if (ann.taxableStatus === 'PARTIAL' && ann.taxableAmount != null) {
-                    totalTaxableKobo += ann.taxableAmount;
-                } else if (ann.taxableStatus === 'YES') {
-                    totalTaxableKobo += ann.transaction.creditAmount;
-                }
+                totalIncomeKobo += ann.transaction.creditAmount;
             }
 
             // ── Direct Business Expense deductions (YES on debits) ──
@@ -159,16 +155,11 @@ export async function POST(request: Request) {
                 totalDBEKobo += ann.transaction.debitAmount;
             }
 
-            // Subtract DBE from total taxable (floor at 0)
-            const netTaxable = totalTaxableKobo > totalDBEKobo
-                ? totalTaxableKobo - totalDBEKobo
-                : BigInt(0);
-
             return NextResponse.json({
                 totalTransactions: totalCount,
                 annotatedTransactions: annotatedCount,
                 pendingReview: totalCount - annotatedCount,
-                totalTaxableKobo: netTaxable.toString(),
+                totalIncomeKobo: totalIncomeKobo.toString(),
                 totalDBEKobo: totalDBEKobo.toString(),
             });
         }
@@ -190,19 +181,15 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace is locked' }, { status: 403 });
             }
 
-            if (data.taxableStatus === 'PARTIAL' && !data.taxableAmount) {
-                return NextResponse.json(
-                    { error: 'Taxable amount is required for PARTIAL status' },
-                    { status: 400 }
-                );
-            }
+            // Ensure taxableAmount is null if not PARTIAL (which is no longer supported)
+            const finalTaxableAmount = null;
 
             const annotation = await prisma.annotation.upsert({
                 where: { transactionId: data.transactionId },
                 create: {
                     transactionId: data.transactionId,
                     taxableStatus: data.taxableStatus,
-                    taxableAmount: data.taxableAmount ? BigInt(data.taxableAmount) : null,
+                    taxableAmount: finalTaxableAmount,
                     taxCategory: data.taxCategory || 'UNCLASSIFIED',
                     reason: data.reason || null,
                     reliefType: data.reliefType || null,

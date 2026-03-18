@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useWorkspace } from "./WorkspaceContext";
 
 const navItems = [
   { label: "Overview", href: "/overview", icon: "dashboard" },
@@ -16,6 +17,8 @@ const systemItems = [
 
 export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
   const pathname = usePathname();
+  const { activeWorkspace } = useWorkspace();
+  const isUnlocked = activeWorkspace?.isUnlocked ?? false;
 
   const isActive = (href: string) =>
     href === "/overview" ? pathname === "/overview" : pathname.startsWith(href);
@@ -72,8 +75,14 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
           <div className="sidebar-footer">
             <div className="sidebar-plan-card">
               <p className="sidebar-plan-label">Current Plan</p>
-              <p className="sidebar-plan-tier">Free Tier</p>
-              <button className="sidebar-plan-btn">Get full access</button>
+              <p className="sidebar-plan-tier" style={{ textTransform: "capitalize" }}>
+                {isUnlocked ? "Standard (Unlocked)" : "Free Tier"}
+              </p>
+              {!isUnlocked && (
+                <button className="sidebar-plan-btn" onClick={() => window.location.href = "/settings?tab=billing"}>
+                  Unlock Full Year
+                </button>
+              )}
             </div>
           </div>
         )}

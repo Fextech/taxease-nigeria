@@ -11,6 +11,8 @@ export interface Workspace {
   isUnlocked?: boolean;
   statementCredits?: number;
   allowedBanksCount?: number;
+  additionalDeductions?: { label: string; amount: string }[] | null;
+  annualRentAmount?: bigint | null;
 }
 
 interface WorkspaceState {

@@ -16,13 +16,15 @@ export const dashboardRouter = router({
                 throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found.' });
             }
 
-            // ── 1. Tax Computation (same logic as reports) ───
+            // ── 1. Tax Computation (Income) ────────────
             const taxableAnnotations = await ctx.prisma.annotation.findMany({
                 where: {
                     status: 'COMPLETE',
-                    taxableStatus: { in: ['YES', 'PARTIAL'] },
-                    transaction: { statement: { workspaceId: input.workspaceId } },
-                    deletedAt: null,
+                    taxableStatus: 'YES',
+                    transaction: {
+                        statement: { workspaceId: input.workspaceId },
+                        creditAmount: { gt: 0 },
+                    },
                 },
                 select: {
                     taxableStatus: true,
@@ -31,27 +33,45 @@ export const dashboardRouter = router({
                 },
             });
 
-            let grossIncome = 0n;
+            let grossIncome = BigInt(0);
             for (const ann of taxableAnnotations) {
-                if (ann.taxableStatus === 'PARTIAL' && ann.taxableAmount != null) {
-                    grossIncome += ann.taxableAmount;
-                } else {
-                    grossIncome += ann.transaction.creditAmount;
-                }
+                grossIncome += ann.transaction.creditAmount;
             }
 
+            // ── 1b. Direct Business Expenses (taxable debits)
+            const dbeAnnotations = await ctx.prisma.annotation.findMany({
+                where: {
+                    status: 'COMPLETE',
+                    taxableStatus: 'YES',
+                    transaction: {
+                        statement: { workspaceId: input.workspaceId },
+                        debitAmount: { gt: 0 },
+                    },
+                },
+                select: {
+                    transaction: { select: { debitAmount: true } },
+                },
+            });
+
+            let totalDBE = 0n;
+            for (const ann of dbeAnnotations) {
+                totalDBE += ann.transaction.debitAmount;
+            }
+
+            const netTaxableIncome = grossIncome > totalDBE ? grossIncome - totalDBE : 0n;
+
             const reliefs: Relief[] = [];
-            const pensionAmount = (grossIncome * 8n) / 100n;
+            const pensionAmount = (netTaxableIncome * 8n) / 100n;
             if (pensionAmount > 0n) {
                 reliefs.push({ label: 'Pension (RSA)', amount: pensionAmount });
             }
-            const nhfAmount = (grossIncome * 25n) / 1000n;
+            const nhfAmount = (netTaxableIncome * 25n) / 1000n;
             if (nhfAmount > 0n) {
                 reliefs.push({ label: 'NHF', amount: nhfAmount });
             }
 
             const taxResult = computeTax({
-                grossIncome,
+                grossIncome: netTaxableIncome,
                 reliefs,
                 taxYear: workspace.taxYear,
             });
@@ -141,8 +161,9 @@ export const dashboardRouter = router({
             const annotatedCount = await ctx.prisma.annotation.count({
                 where: {
                     status: 'COMPLETE',
-                    transaction: { statement: { workspaceId: input.workspaceId } },
-                    deletedAt: null,
+                    transaction: {
+                        statement: { workspaceId: input.workspaceId },
+                    },
                 },
             });
 

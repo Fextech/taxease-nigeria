@@ -23,12 +23,16 @@ export const reportsRouter = router({
                 throw new TRPCError({ code: 'NOT_FOUND', message: 'Workspace not found.' });
             }
 
-            // 1. Aggregate taxable income from COMPLETE annotations
+            // 1. Aggregate taxable income from COMPLETE annotations (credits only)
             const taxableAnnotations = await ctx.prisma.annotation.findMany({
                 where: {
+                    deletedAt: null,
                     status: 'COMPLETE',
-                    taxableStatus: { in: ['YES', 'PARTIAL'] },
-                    transaction: { statement: { workspaceId: input.workspaceId } },
+                    taxableStatus: 'YES',
+                    transaction: {
+                        statement: { workspaceId: input.workspaceId },
+                        creditAmount: { gt: 0 },
+                    },
                 },
                 select: {
                     taxableStatus: true,
@@ -45,12 +49,7 @@ export const reportsRouter = router({
             const categoryTotals: Record<string, bigint> = {};
 
             for (const ann of taxableAnnotations) {
-                let amount: bigint;
-                if (ann.taxableStatus === 'PARTIAL' && ann.taxableAmount != null) {
-                    amount = ann.taxableAmount;
-                } else {
-                    amount = ann.transaction.creditAmount;
-                }
+                const amount = ann.transaction.creditAmount;
                 grossIncome += amount;
 
                 // Track by category
@@ -58,26 +57,43 @@ export const reportsRouter = router({
                 categoryTotals[cat] = (categoryTotals[cat] || 0n) + amount;
             }
 
-            // 2. Build reliefs array (standard statutory deductions based on gross)
-            const reliefs: Relief[] = [];
+            // 1b. Direct Business Expenses (taxable debits)
+            const dbeAnnotations = await ctx.prisma.annotation.findMany({
+                where: {
+                    deletedAt: null,
+                    status: 'COMPLETE',
+                    taxableStatus: 'YES',
+                    transaction: {
+                        statement: { workspaceId: input.workspaceId },
+                        debitAmount: { gt: 0 },
+                    },
+                },
+                select: {
+                    transaction: { select: { debitAmount: true } },
+                },
+            });
 
-            // RSA Pension contribution (8% of gross, up to a reasonable cap)
-            const pensionAmount = (grossIncome * 8n) / 100n;
-            if (pensionAmount > 0n) {
-                reliefs.push({ label: 'Pension Fund (RSA) — 8%', amount: pensionAmount });
+            let totalDBE = 0n;
+            for (const ann of dbeAnnotations) {
+                totalDBE += ann.transaction.debitAmount;
             }
 
-            // NHF (2.5% of gross)
-            const nhfAmount = (grossIncome * 25n) / 1000n;
-            if (nhfAmount > 0n) {
-                reliefs.push({ label: 'National Housing Fund (NHF) — 2.5%', amount: nhfAmount });
-            }
+            const netTaxableIncome = grossIncome > totalDBE ? grossIncome - totalDBE : 0n;
+
+            // 2. Build reliefs from saved workspace data
+            const rawDeductions = workspace.additionalDeductions;
+            const additionalDeductions = Array.isArray(rawDeductions) ? rawDeductions as { label: string; amount: string }[] : [];
+            
+            const reliefs: Relief[] = additionalDeductions.map(d => ({
+                label: d.label || 'Additional Deduction',
+                amount: BigInt(Math.max(0, parseInt(d.amount, 10) || 0))
+            }));
 
             // 3. Compute tax using the shared engine
             let result: TaxComputationResult;
             try {
                 result = computeTax({
-                    grossIncome,
+                    grossIncome: netTaxableIncome,
                     reliefs,
                     taxYear: workspace.taxYear,
                     annualRentPaid: input.annualRentPaid ? BigInt(input.annualRentPaid) : undefined,
@@ -91,11 +107,12 @@ export const reportsRouter = router({
 
             // 4. Get annotation stats
             const totalTransactions = await ctx.prisma.transaction.count({
-                where: { statement: { workspaceId: input.workspaceId } },
+                where: { deletedAt: null, statement: { workspaceId: input.workspaceId } },
             });
 
             const annotatedTransactions = await ctx.prisma.annotation.count({
                 where: {
+                    deletedAt: null,
                     status: 'COMPLETE',
                     transaction: { statement: { workspaceId: input.workspaceId } },
                 },

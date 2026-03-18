@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useSession } from "next-auth/react";
 import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 
-type TaxableStatus = "YES" | "NO" | "PARTIAL";
+type TaxableStatus = "YES" | "NO";
 type ExpenseStatus = "OTHER" | "DBE"; // maps to NO / YES on the backend
 type TaxCategory = "EMPLOYMENT" | "BUSINESS" | "RENTAL" | "INVESTMENT" | "FOREIGN" | "EXEMPT" | "UNCLASSIFIED";
 type TxnTypeFilter = "all" | "credit" | "debit";
@@ -40,7 +40,8 @@ interface Stats {
   totalTransactions: number;
   annotatedTransactions: number;
   pendingReview: number;
-  totalTaxableKobo: string;
+  totalIncomeKobo: string;
+  totalDBEKobo: string;
 }
 
 type Tab = "all" | "unannotated" | "completed";
@@ -187,7 +188,7 @@ export default function AnnotationsPage() {
           action: "upsert",
           transactionId: selectedTxn.id,
           taxableStatus: resolvedTaxableStatus,
-          taxableAmount: !isDebit && formStatus === "PARTIAL" ? formAmount : undefined,
+          taxableAmount: undefined,
           taxCategory: isDebit ? "UNCLASSIFIED" : formCategory,
           reason: formReason || undefined,
           isDebit,
@@ -230,7 +231,8 @@ export default function AnnotationsPage() {
   const totalCount = stats?.totalTransactions ?? transactions.length;
   const annotatedCount = stats?.annotatedTransactions ?? 0;
   const pendingCount = stats?.pendingReview ?? totalCount;
-  const taxLiability = stats?.totalTaxableKobo ?? "0";
+  const totalIncome = stats?.totalIncomeKobo ?? "0";
+  const dbeValue = stats?.totalDBEKobo ?? "0";
   const progressPct = totalCount > 0 ? Math.round((annotatedCount / totalCount) * 100) : 0;
 
   // Per-month transaction counts
@@ -271,11 +273,18 @@ export default function AnnotationsPage() {
           {/* Stat Cards */}
           <div className="anno-stats">
             <div className="anno-stat-card">
-              <p className="anno-stat-label">Real-time Tax Liability</p>
+              <p className="anno-stat-label">Total Income</p>
               <h3 className="anno-stat-value" style={{ color: "var(--te-primary)" }}>
-                {formatKobo(taxLiability)}
+                {formatKobo(totalIncome)}
               </h3>
-              <p className="anno-stat-sub">Estimated from annotated income</p>
+              <p className="anno-stat-sub">gross earnings before DBE deduction</p>
+            </div>
+            <div className="anno-stat-card">
+              <p className="anno-stat-label">Direct business expenses</p>
+              <h3 className="anno-stat-value" style={{ color: "#ef4444" }}>
+                {formatKobo(dbeValue)}
+              </h3>
+              <p className="anno-stat-sub">deductible business expenses</p>
             </div>
             <div className="anno-stat-card">
               <p className="anno-stat-label">Annotated Transactions</p>
@@ -382,7 +391,7 @@ export default function AnnotationsPage() {
                     const isCredit = BigInt(t.creditAmount) > 0n;
                     const amount = isCredit ? t.creditAmount : t.debitAmount;
                     const annStatus = t.annotation?.status || "UNANNOTATED";
-                    const isTaxable = t.annotation?.taxableStatus === "YES" || t.annotation?.taxableStatus === "PARTIAL";
+                    const isTaxable = t.annotation?.taxableStatus === "YES";
 
                     return (
                       <tr
@@ -469,29 +478,17 @@ export default function AnnotationsPage() {
                   <div className="anno-panel-section">
                     <p className="anno-panel-label">Taxable Status</p>
                     <div className="anno-panel-options">
-                      {(["YES", "NO", "PARTIAL"] as TaxableStatus[]).map((s) => (
+                      {(["YES", "NO"] as TaxableStatus[]).map((s) => (
                         <button
                           key={s}
                           className={`anno-option ${formStatus === s ? "anno-option--active" : ""}`}
                           onClick={() => setFormStatus(s)}
                         >
-                          {s === "YES" ? "Yes" : s === "NO" ? "No" : "Partial"}
+                          {s === "YES" ? "Yes" : "No"}
                         </button>
                       ))}
                     </div>
                   </div>
-
-                  {formStatus === "PARTIAL" && (
-                    <div className="anno-panel-section">
-                      <p className="anno-panel-label">Taxable Amount (kobo)</p>
-                      <input
-                        className="anno-panel-input"
-                        value={formAmount}
-                        onChange={(e) => setFormAmount(e.target.value)}
-                        placeholder="e.g. 120000000"
-                      />
-                    </div>
-                  )}
 
                   <div className="anno-panel-section">
                     <p className="anno-panel-label">Tax Category</p>
@@ -541,16 +538,10 @@ export default function AnnotationsPage() {
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check</span>
                 {saving ? "Saving..." : "Complete Annotation"}
               </button>
-              <div className="anno-panel-actions">
+              <div className="anno-panel-actions" style={{ justifyContent: "center" }}>
                 <button
                   className="anno-secondary-btn"
-                  onClick={() => handleSave("IN_PROGRESS")}
-                  disabled={saving}
-                >
-                  Save Draft
-                </button>
-                <button
-                  className="anno-secondary-btn"
+                  style={{ flex: "none", width: "146px" }}
                   onClick={() => {
                     const next = transactions.find((t) => t.id !== selectedTxn.id && !t.annotation);
                     if (next) setSelectedTxn(next);

@@ -27,13 +27,16 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
             }
 
-            // 1. Tax Computation
+            // 1. Tax Computation — Taxable Credits (Income)
             const taxableAnnotations = await prisma.annotation.findMany({
                 where: {
                     status: 'COMPLETE',
-                    taxableStatus: { in: ['YES', 'PARTIAL'] },
-                    transaction: { statement: { workspaceId: data.workspaceId } },
-                    deletedAt: null,
+                    taxableStatus: 'YES',
+                    transaction: {
+                        deletedAt: null,
+                        statement: { workspaceId: data.workspaceId, deletedAt: null },
+                        creditAmount: { gt: 0 },
+                    },
                 },
                 select: {
                     taxableStatus: true,
@@ -44,33 +47,54 @@ export async function POST(request: Request) {
 
             let grossIncome = BigInt(0);
             for (const ann of taxableAnnotations) {
-                if (ann.taxableStatus === 'PARTIAL' && ann.taxableAmount != null) {
-                    grossIncome += ann.taxableAmount;
-                } else {
-                    grossIncome += ann.transaction.creditAmount;
-                }
+                grossIncome += ann.transaction.creditAmount;
             }
 
-            const reliefs: Relief[] = [];
-            const pensionAmount = (grossIncome * BigInt(8)) / BigInt(100);
-            if (pensionAmount > BigInt(0)) {
-                reliefs.push({ label: 'Pension (RSA)', amount: pensionAmount });
-            }
-            const nhfAmount = (grossIncome * BigInt(25)) / BigInt(1000);
-            if (nhfAmount > BigInt(0)) {
-                reliefs.push({ label: 'NHF', amount: nhfAmount });
+            // 1b. Direct Business Expenses (taxable debits)
+            const dbeAnnotations = await prisma.annotation.findMany({
+                where: {
+                    status: 'COMPLETE',
+                    taxableStatus: 'YES',
+                    transaction: {
+                        deletedAt: null,
+                        statement: { workspaceId: data.workspaceId, deletedAt: null },
+                        debitAmount: { gt: 0 },
+                    },
+                },
+                select: {
+                    transaction: { select: { debitAmount: true } },
+                },
+            });
+
+            let totalDBE = BigInt(0);
+            for (const ann of dbeAnnotations) {
+                totalDBE += ann.transaction.debitAmount;
             }
 
+            // Net taxable = gross income - direct business expenses
+            const netTaxableIncome = grossIncome > totalDBE ? grossIncome - totalDBE : BigInt(0);
+
+            // Build reliefs from saved workspace additional deductions (same as reports page)
+            const rawDeductions = (workspace as any).additionalDeductions;
+            const additionalDeductions = Array.isArray(rawDeductions) ? rawDeductions as { label: string; amount: string }[] : [];
+
+            const reliefs: Relief[] = additionalDeductions.map(d => ({
+                label: d.label || 'Additional Deduction',
+                amount: BigInt(Math.max(0, parseInt(d.amount, 10) || 0))
+            }));
+
+            const annualRentPaid = workspace.annualRentAmount || undefined;
             const taxResult = computeTax({
-                grossIncome,
+                grossIncome: netTaxableIncome,
                 reliefs,
                 taxYear: workspace.taxYear,
+                annualRentPaid,
             });
 
             // 2. Monthly Distribution
             const transactions = await prisma.transaction.findMany({
                 where: { 
-                    statement: { workspaceId: data.workspaceId },
+                    statement: { workspaceId: data.workspaceId, deletedAt: null },
                     deletedAt: null,
                 },
                 select: {
@@ -101,7 +125,7 @@ export async function POST(request: Request) {
             // 3. Recent Transactions
             const recentTxns = await prisma.transaction.findMany({
                 where: { 
-                    statement: { workspaceId: data.workspaceId },
+                    statement: { workspaceId: data.workspaceId, deletedAt: null },
                     deletedAt: null,
                 },
                 orderBy: { transactionDate: 'desc' },
@@ -144,15 +168,17 @@ export async function POST(request: Request) {
             // 5. Stats
             const totalTxnCount = await prisma.transaction.count({
                 where: { 
-                    statement: { workspaceId: data.workspaceId },
+                    statement: { workspaceId: data.workspaceId, deletedAt: null },
                     deletedAt: null,
                 },
             });
             const annotatedCount = await prisma.annotation.count({
                 where: {
                     status: 'COMPLETE',
-                    transaction: { statement: { workspaceId: data.workspaceId } },
-                    deletedAt: null,
+                    transaction: {
+                        deletedAt: null,
+                        statement: { workspaceId: data.workspaceId, deletedAt: null },
+                    },
                 },
             });
 
@@ -162,7 +188,9 @@ export async function POST(request: Request) {
                     grossIncome: taxResult.grossIncome.toString(),
                     taxableIncome: taxResult.taxableIncome.toString(),
                     cra: taxResult.cra.toString(),
+                    totalReliefs: taxResult.totalReliefs.toString(),
                     rentRelief: taxResult.rentRelief.toString(),
+                    grandTotalRelief: (taxResult.cra + taxResult.rentRelief + taxResult.totalReliefs).toString(),
                     taxLiability: taxResult.taxLiability.toString(),
                     effectiveRate: taxResult.effectiveRate,
                 },

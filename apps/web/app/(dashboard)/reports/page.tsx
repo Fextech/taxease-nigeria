@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useSession } from "next-auth/react";
 import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 
@@ -110,19 +110,43 @@ export default function ReportsPage() {
   const [report, setReport] = useState<ReportData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationMessage, setGenerationMessage] = useState<string | null>(null);
 
-  // Rent relief input (for 2026+ tax years)
   const [annualRentInput, setAnnualRentInput] = useState("");
+  const [isSavingRent, setIsSavingRent] = useState(false);
+  const [saveRentStatus, setSaveRentStatus] = useState<"IDLE" | "SAVING" | "SAVED" | "ERROR">("IDLE");
 
-  const loadReport = useCallback(async (wsId: string) => {
+  // Additional Deductions
+  const [showAdditionalDeductions, setShowAdditionalDeductions] = useState(false);
+  const [additionalDeductions, setAdditionalDeductions] = useState<{ label: string; amount: string }[]>([]);
+  const [initialDeductionsHash, setInitialDeductionsHash] = useState<string | null>(null);
+  const [isSavingDeductions, setIsSavingDeductions] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"IDLE" | "SAVING" | "SAVED" | "ERROR">("IDLE");
+
+  // Keep a ref to inputs so loadReport doesn't re-trigger initial fetch on every keystroke
+  const inputRefs = useRef({ annualRentInput, additionalDeductions });
+  useEffect(() => {
+    inputRefs.current = { annualRentInput, additionalDeductions };
+  }, [annualRentInput, additionalDeductions]);
+
+  const loadReport = useCallback(async (wsId: string, customDeductions?: typeof additionalDeductions) => {
     setLoading(true);
     setError(null);
     try {
-      const reportBody: Record<string, unknown> = { action: "generate", workspaceId: wsId };
+      const currentRent = inputRefs.current.annualRentInput;
+      const currentDeductions = customDeductions !== undefined ? customDeductions : inputRefs.current.additionalDeductions;
+
+      const reportBody: Record<string, unknown> = {
+        action: "generate",
+        workspaceId: wsId,
+        additionalDeductions: currentDeductions,
+      };
+      
       // For 2026+ tax years, include rent amount if provided
-      if (annualRentInput && !isNaN(Number(annualRentInput))) {
+      if (currentRent && !isNaN(Number(currentRent))) {
         // Convert naira to kobo for the API
-        reportBody.annualRentPaid = (BigInt(Math.round(Number(annualRentInput) * 100))).toString();
+        reportBody.annualRentPaid = (BigInt(Math.round(Number(currentRent) * 100))).toString();
       }
       const res = await fetch("/api/reports", {
         method: "POST",
@@ -142,7 +166,43 @@ export default function ReportsPage() {
     } finally {
       setLoading(false);
     }
-  }, [annualRentInput]);
+  }, []);
+
+  const handleGenerateReport = async () => {
+    if (!activeWorkspaceId) return;
+    setIsGenerating(true);
+    setGenerationMessage(null);
+    try {
+      const reportBody: Record<string, unknown> = {
+        action: "email-report",
+        workspaceId: activeWorkspaceId,
+        additionalDeductions,
+      };
+      if (annualRentInput && !isNaN(Number(annualRentInput))) {
+        reportBody.annualRentPaid = (BigInt(Math.round(Number(annualRentInput) * 100))).toString();
+      }
+
+      const res = await fetch("/api/reports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(reportBody),
+      });
+      if (res.ok) {
+        setGenerationMessage("Report is being generated and will be sent to your registered email address shortly.");
+        // Auto-hide the message after 5 seconds
+        setTimeout(() => setGenerationMessage(null), 5000);
+      } else {
+        const err = await res.json();
+        setGenerationMessage(err.error || "Failed to initiate report generation.");
+        setTimeout(() => setGenerationMessage(null), 5000);
+      }
+    } catch {
+      setGenerationMessage("Failed to connect to the server.");
+      setTimeout(() => setGenerationMessage(null), 5000);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   useEffect(() => {
     if (activeWorkspaceId) {
@@ -156,9 +216,97 @@ export default function ReportsPage() {
   const taxYear = activeWorkspace?.taxYear ?? new Date().getFullYear();
   const is2026Plus = taxYear >= 2026;
 
-  // Additional Deductions
-  const [showAdditionalDeductions, setShowAdditionalDeductions] = useState(false);
-  const [additionalDeductions, setAdditionalDeductions] = useState<{label: string; amount: string}[]>([]);
+  // Load initial deductions from workspace if available (using report fetch)
+  useEffect(() => {
+    if (activeWorkspace) {
+      const stored = activeWorkspace.additionalDeductions;
+      if (Array.isArray(stored) && stored.length > 0) {
+        setAdditionalDeductions(stored);
+        setInitialDeductionsHash(JSON.stringify(stored));
+        setShowAdditionalDeductions(true);
+      } else {
+        setAdditionalDeductions([]);
+        setInitialDeductionsHash(JSON.stringify([]));
+      }
+
+      // Load saved rent
+      if (activeWorkspace.annualRentAmount) {
+        setAnnualRentInput((Number(activeWorkspace.annualRentAmount) / 100).toString());
+      } else {
+        setAnnualRentInput("");
+      }
+    }
+  }, [activeWorkspace]);
+
+  // Manual save handler — user clicks the checkmark button to save
+  const handleSaveDeductions = async () => {
+    if (!activeWorkspaceId) return;
+
+    setSaveStatus("SAVING");
+    setIsSavingDeductions(true);
+
+    try {
+      const res = await fetch("/api/workspaces/deductions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: activeWorkspaceId,
+          additionalDeductions,
+        }),
+      });
+
+      if (res.ok) {
+        setSaveStatus("SAVED");
+        setInitialDeductionsHash(JSON.stringify(additionalDeductions));
+        // Re-trigger the report generation to compute the new tax liability
+        loadReport(activeWorkspaceId, additionalDeductions);
+        // Hide "SAVED" badge after 3 seconds
+        setTimeout(() => {
+          setSaveStatus((prev) => (prev === "SAVED" ? "IDLE" : prev));
+        }, 3000);
+      } else {
+        setSaveStatus("ERROR");
+        setTimeout(() => setSaveStatus("IDLE"), 3000);
+      }
+    } catch {
+      setSaveStatus("ERROR");
+      setTimeout(() => setSaveStatus("IDLE"), 3000);
+    } finally {
+      setIsSavingDeductions(false);
+    }
+  };
+
+  const handleSaveRent = async () => {
+    if (!activeWorkspaceId) return;
+
+    setSaveRentStatus("SAVING");
+    setIsSavingRent(true);
+
+    try {
+      const res = await fetch("/api/workspaces/deductions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          workspaceId: activeWorkspaceId,
+          annualRentAmount: annualRentInput ? (Math.round(Number(annualRentInput) * 100)).toString() : "0",
+        }),
+      });
+
+      if (res.ok) {
+        setSaveRentStatus("SAVED");
+        loadReport(activeWorkspaceId); // Recalculate tax report
+        setTimeout(() => setSaveRentStatus("IDLE"), 3000);
+      } else {
+        setSaveRentStatus("ERROR");
+        setTimeout(() => setSaveRentStatus("IDLE"), 3000);
+      }
+    } catch {
+      setSaveRentStatus("ERROR");
+      setTimeout(() => setSaveRentStatus("IDLE"), 3000);
+    } finally {
+      setIsSavingRent(false);
+    }
+  };
 
   // User's state of residence (would come from settings API)
   const [userState, setUserState] = useState<string | null>(null);
@@ -184,7 +332,22 @@ export default function ReportsPage() {
   }, []);
 
   const addDeduction = () => setAdditionalDeductions((prev) => [...prev, { label: "", amount: "" }]);
-  const removeDeduction = (i: number) => setAdditionalDeductions((prev) => prev.filter((_, idx) => idx !== i));
+  const removeDeduction = async (i: number) => {
+    const updated = additionalDeductions.filter((_, idx) => idx !== i);
+    setAdditionalDeductions(updated);
+    // Persist the deletion to the database immediately
+    if (activeWorkspaceId) {
+      try {
+        await fetch("/api/workspaces/deductions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ workspaceId: activeWorkspaceId, additionalDeductions: updated }),
+        });
+        setInitialDeductionsHash(JSON.stringify(updated));
+        loadReport(activeWorkspaceId, updated);
+      } catch { /* silent */ }
+    }
+  };
   const updateDeduction = (i: number, field: "label" | "amount", value: string) =>
     setAdditionalDeductions((prev) => prev.map((d, idx) => idx === i ? { ...d, [field]: value } : d));
 
@@ -234,9 +397,13 @@ export default function ReportsPage() {
                 Refresh
               </button>
             </div>
-            <button className="report-btn-outline">
-              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>download</span>
-              Excel Export
+            <button className="report-btn-outline" onClick={handleGenerateReport} disabled={isGenerating || !activeWorkspaceId}>
+              {isGenerating ? (
+                <span className="material-symbols-outlined status-spin" style={{ fontSize: 16 }}>sync</span>
+              ) : (
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>description</span>
+              )}
+              {isGenerating ? "Generating..." : "Generate Report"}
             </button>
             <button className="report-btn-primary" onClick={handleProceedToIRS}>
               Proceed to IRS Portal
@@ -244,6 +411,13 @@ export default function ReportsPage() {
             </button>
           </div>
         </div>
+
+        {generationMessage && (
+          <div className="report-alert" style={{ background: "var(--te-accent-soft)", border: "1px solid var(--te-primary)", color: "var(--te-primary)", padding: "12px 16px", borderRadius: "8px", marginBottom: "20px", display: "flex", alignItems: "center", gap: "8px" }}>
+            <span className="material-symbols-outlined">info</span>
+            {generationMessage}
+          </div>
+        )}
 
         {loading ? (
           <div className="report-loading">
@@ -268,7 +442,9 @@ export default function ReportsPage() {
                 </div>
                 <div className="comp-item">
                   <span className="comp-label">Total Reliefs</span>
-                  <span className="comp-value" style={{ color: "var(--te-mint)" }}>{formatKobo((BigInt(cra) + BigInt(totalReliefs) + BigInt(additionalTotal)).toString())}</span>
+                  <span className="comp-value" style={{ color: "var(--te-mint)" }}>
+                    {formatKobo((BigInt(cra) + BigInt(report?.rentRelief || '0') + BigInt(totalReliefs) + BigInt(additionalTotal)).toString())}
+                  </span>
                 </div>
                 <div className="comp-item">
                   <span className="comp-label">Taxable Income</span>
@@ -360,19 +536,55 @@ export default function ReportsPage() {
                         </div>
                       </div>
                       <div className="rent-relief-input-wrap">
-                        <div className="rent-input-group">
-                          <span className="rent-currency">₦</span>
-                          <input
-                            className="rent-input"
-                            type="number"
-                            placeholder="Annual rent paid"
-                            value={annualRentInput}
-                            onChange={(e) => setAnnualRentInput(e.target.value)}
-                          />
+                        <div className="rent-input-group" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <div style={{ position: 'relative', flex: 1 }}>
+                            <span className="rent-currency">₦</span>
+                            <input
+                              className="rent-input"
+                              type="number"
+                              placeholder="Annual rent paid"
+                              value={annualRentInput}
+                              onChange={(e) => setAnnualRentInput(e.target.value)}
+                              style={{ width: '100%' }}
+                            />
+                          </div>
+                          <button
+                            className="addl-deduct-action"
+                            disabled={isSavingRent}
+                            onClick={handleSaveRent}
+                            title="Save rent amount"
+                            style={{ flexShrink: 0, color: "var(--te-mint)", padding: "10px", display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(16,185,129,0.1)", borderRadius: 6, border: "none", cursor: "pointer", transition: "all 0.2s" }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                              {isSavingRent ? "sync" : "check"}
+                            </span>
+                          </button>
                         </div>
-                        {report?.rentRelief && BigInt(report.rentRelief) > 0n && (
-                          <span className="rent-relief-amount">Relief: {formatKobo(report.rentRelief)}</span>
-                        )}
+                        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginTop: "8px" }}>
+                          {report?.rentRelief && BigInt(report.rentRelief) > 0n && (
+                            <span className="rent-relief-amount">Relief: {formatKobo(report.rentRelief)}</span>
+                          )}
+                          
+                          {/* Save Status Indicator */}
+                          {saveRentStatus === "SAVING" && (
+                            <span style={{ fontSize: 12, color: "var(--te-accent)", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <span className="material-symbols-outlined status-spin" style={{ fontSize: 14 }}>sync</span>
+                              Saving...
+                            </span>
+                          )}
+                          {saveRentStatus === "SAVED" && (
+                            <span style={{ fontSize: 12, color: "var(--te-mint)", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>check_circle</span>
+                              Saved
+                            </span>
+                          )}
+                          {saveRentStatus === "ERROR" && (
+                            <span style={{ fontSize: 12, color: "#dc2626", display: "flex", alignItems: "center", gap: "4px" }}>
+                              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>error</span>
+                              Failed to save
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -403,14 +615,35 @@ export default function ReportsPage() {
                     );
                   })}
 
-                  {/* Additional Deductions */}
                   <div className="additional-deductions">
                     <div className="addl-deduct-header">
-                      <span className="addl-deduct-label">Additional Deductions</span>
-                      <label className="toggle-switch">
-                        <input type="checkbox" checked={showAdditionalDeductions} onChange={(e) => setShowAdditionalDeductions(e.target.checked)} />
-                        <span className="toggle-slider" />
-                      </label>
+                      <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <span className="addl-deduct-label">Additional Deductions</span>
+                        <label className="toggle-switch">
+                          <input type="checkbox" checked={showAdditionalDeductions} onChange={(e) => setShowAdditionalDeductions(e.target.checked)} />
+                          <span className="toggle-slider" />
+                        </label>
+                      </div>
+                      
+                      {/* Save Status Indicator */}
+                      {saveStatus === "SAVING" && (
+                        <span style={{ fontSize: 12, color: "var(--te-accent)", display: "flex", alignItems: "center", gap: "4px" }}>
+                          <span className="material-symbols-outlined status-spin" style={{ fontSize: 14 }}>sync</span>
+                          Saving...
+                        </span>
+                      )}
+                      {saveStatus === "SAVED" && (
+                        <span style={{ fontSize: 12, color: "var(--te-mint)", display: "flex", alignItems: "center", gap: "4px" }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>check_circle</span>
+                          Saved
+                        </span>
+                      )}
+                      {saveStatus === "ERROR" && (
+                        <span style={{ fontSize: 12, color: "#dc2626", display: "flex", alignItems: "center", gap: "4px" }}>
+                          <span className="material-symbols-outlined" style={{ fontSize: 14 }}>error</span>
+                          Failed to save
+                        </span>
+                      )}
                     </div>
                     {showAdditionalDeductions && (
                       <div className="addl-deduct-body">
@@ -428,8 +661,19 @@ export default function ReportsPage() {
                               value={d.amount}
                               onChange={(e) => updateDeduction(i, "amount", e.target.value)}
                             />
-                            <button className="addl-deduct-remove" onClick={() => removeDeduction(i)}>
-                              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                            <button
+                              className="addl-deduct-action"
+                              disabled={isSavingDeductions}
+                              onClick={handleSaveDeductions}
+                              title="Save this deduction"
+                              style={{ color: "var(--te-mint)", padding: 6, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(16,185,129,0.1)", borderRadius: 6, border: "none", cursor: "pointer", transition: "all 0.2s" }}
+                            >
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+                                {isSavingDeductions ? "sync" : "check"}
+                              </span>
+                            </button>
+                            <button className="addl-deduct-remove" onClick={() => removeDeduction(i)} title="Remove deduction">
+                              <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
                             </button>
                           </div>
                         ))}
@@ -438,7 +682,7 @@ export default function ReportsPage() {
                           Add Deduction
                         </button>
                         {additionalDeductions.length > 0 && (
-                          <div className="addl-deduct-total">
+                          <div className="addl-deduct-total" style={{ marginTop: 12 }}>
                             <span>Total Additional:</span>
                             <span style={{ fontWeight: 700 }}>{formatKobo(additionalTotal.toString())}</span>
                           </div>

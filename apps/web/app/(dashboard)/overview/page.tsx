@@ -12,6 +12,8 @@ interface OverviewData {
     grossIncome: string;
     taxableIncome: string;
     cra: string;
+    totalReliefs: string;
+    grandTotalRelief: string;
     taxLiability: string;
     effectiveRate: number;
   };
@@ -149,12 +151,12 @@ export default function DashboardPage() {
             </div>
           </div>
           <div className="metric-card">
-            <p className="metric-label">CRA (Relief)</p>
+            <p className="metric-label">Total Relief</p>
             <h3 className="metric-value" style={{ color: "var(--te-mint)" }}>
-              {formatKobo(data.metrics.cra)}
+              {formatKobo(data.metrics.grandTotalRelief)}
             </h3>
             <div className="metric-trend metric-trend--up">
-              <span>Standard Applied</span>
+              <span>All deductions applied</span>
             </div>
           </div>
           <div className="metric-card">
