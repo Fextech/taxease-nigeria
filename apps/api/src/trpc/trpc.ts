@@ -21,3 +21,19 @@ export const protectedProcedure = t.procedure.use(async ({ ctx, next }) => {
         },
     });
 });
+
+// Admin procedure — requires authenticated admin via custom JWT
+export const adminProcedure = t.procedure.use(async ({ ctx, next }) => {
+    if (!ctx.admin) {
+        throw new TRPCError({
+            code: 'UNAUTHORIZED',
+            message: 'Admin access required.',
+        });
+    }
+    return next({
+        ctx: {
+            ...ctx,
+            admin: ctx.admin,
+        },
+    });
+});

@@ -22,9 +22,13 @@ async function main() {
         },
     });
 
-    // CORS — allow frontend origin
+    // CORS — allow frontend origins
+    const allowedOrigins = [
+        process.env.APP_URL || 'http://localhost:3000',
+        process.env.ADMIN_URL || 'http://localhost:3002',
+    ];
     await fastify.register(cors, {
-        origin: process.env.APP_URL || 'http://localhost:3000',
+        origin: allowedOrigins,
         credentials: true,
     });
 

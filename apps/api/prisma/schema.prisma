@@ -81,6 +81,8 @@ model User {
   totpSecret           String?      // Encrypted TOTP secret
   totpVerified         Boolean      @default(false)
 
+  isSuspended          Boolean      @default(false)
+
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
   deletedAt            DateTime?
@@ -342,4 +344,269 @@ model PaystackTransaction {
 
   @@index([userId])
   @@index([reference])
+}
+
+// ─────────────────────────────────────────────
+// ADMIN PANEL ENUMS
+// ─────────────────────────────────────────────
+
+enum AdminRole {
+  SUPER_ADMIN
+  OPERATIONS_ADMIN
+  SUPPORT_AGENT
+  READ_ONLY_ANALYST
+}
+
+enum BroadcastChannel {
+  EMAIL
+  IN_APP
+  BOTH
+}
+
+enum BroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  SENT
+  PARTIALLY_FAILED
+  CANCELLED
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  AWAITING_USER
+  RESOLVED
+  CLOSED
+}
+
+enum TicketPriority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum TicketCategory {
+  BILLING
+  PARSING_ERROR
+  ACCOUNT
+  FILING_QUESTION
+  FEATURE_REQUEST
+  OTHER
+}
+
+// ─────────────────────────────────────────────
+// ADMIN PANEL MODELS
+// ─────────────────────────────────────────────
+
+model AdminUser {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  passwordHash String                          // bcrypt hash
+  fullName     String
+  role         AdminRole  @default(SUPPORT_AGENT)
+
+  // TOTP (mandatory)
+  totpSecret     String?   // Encrypted; null until enrolled
+  totpEnrolled   Boolean   @default(false)
+
+  // Device fingerprinting
+  knownDevices   Json?     // Array of { fingerprint, userAgent, ip, lastSeen }
+
+  isActive       Boolean   @default(true)
+  lastLoginAt    DateTime?
+  failedAttempts Int       @default(0)
+  lockedUntil    DateTime?
+
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  sessions       AdminSession[]
+  auditLogs      AdminAuditLog[]
+  broadcasts     Broadcast[]
+  ticketsAssigned SupportTicket[]      @relation("TicketAssignee")
+  ticketMessages  SupportMessage[]
+
+  @@index([email])
+}
+
+model AdminSession {
+  id           String     @id @default(cuid())
+  adminId      String
+  token        String     @unique              // JWT token hash
+  refreshToken String?    @unique
+  ipAddress    String?
+  userAgent    String?
+  deviceFingerprint String?
+  expiresAt    DateTime
+  lastActiveAt DateTime   @default(now())
+  revokedAt    DateTime?
+
+  createdAt    DateTime   @default(now())
+
+  admin        AdminUser  @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([token])
+}
+
+model AdminAuditLog {
+  id           String     @id @default(cuid())
+  adminId      String?                          // null for system-generated entries
+  adminEmail   String?                          // Denormalized for retention
+  adminRole    String?
+  actionCode   String                           // e.g. USER_SUSPENDED, BROADCAST_SENT
+  targetEntity String?                          // e.g. "User:cuid123"
+  previousValue Json?
+  newValue      Json?
+  ipAddress    String?
+  userAgent    String?
+  metadata     Json?                            // Any extra context
+
+  createdAt    DateTime   @default(now())       // INSERT-only, no updatedAt
+
+  admin        AdminUser? @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([actionCode])
+  @@index([createdAt])
+  @@index([targetEntity])
+}
+
+model Broadcast {
+  id           String            @id @default(cuid())
+  createdById  String
+  subject      String
+  body         String            @db.Text         // HTML content
+  channel      BroadcastChannel
+  status       BroadcastStatus   @default(DRAFT)
+
+  // Targeting
+  segmentType  String                             // all, subscribers, free, tax_year, manual
+  segmentConfig Json?                             // Filter criteria
+
+  scheduledAt  DateTime?
+  sentAt       DateTime?
+  totalRecipients Int            @default(0)
+  delivered    Int               @default(0)
+  failed       Int               @default(0)
+  opened       Int               @default(0)
+
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+
+  createdBy    AdminUser         @relation(fields: [createdById], references: [id])
+  recipients   BroadcastRecipient[]
+
+  @@index([createdById])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+model BroadcastRecipient {
+  id           String     @id @default(cuid())
+  broadcastId  String
+  userId       String
+  channel      BroadcastChannel
+  deliveredAt  DateTime?
+  openedAt     DateTime?
+  failedAt     DateTime?
+  failReason   String?
+
+  createdAt    DateTime   @default(now())
+
+  broadcast    Broadcast  @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  @@index([broadcastId])
+  @@index([userId])
+}
+
+model EmailTemplate {
+  id          String     @id @default(cuid())
+  name        String     @unique
+  subject     String
+  body        String     @db.Text
+  category    String?                           // welcome, notification, broadcast, system
+  isActive    Boolean    @default(true)
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model FeatureFlag {
+  id          String     @id @default(cuid())
+  key         String     @unique
+  description String?
+  isEnabled   Boolean    @default(false)
+  metadata    Json?                              // rollout %, user segments, etc.
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model AppConfig {
+  id          String     @id @default(cuid())
+  key         String     @unique
+  value       String     @db.Text
+  description String?
+  updatedBy   String?                            // AdminUser ID
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model SupportTicket {
+  id           String          @id @default(cuid())
+  userId       String                              // End-user who submitted
+  assigneeId   String?                             // Admin assigned
+  subject      String
+  category     TicketCategory
+  priority     TicketPriority  @default(MEDIUM)
+  status       TicketStatus    @default(OPEN)
+  slaDeadline  DateTime?                           // auto-calculated from priority
+
+  resolvedAt   DateTime?
+  closedAt     DateTime?
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  assignee     AdminUser?      @relation("TicketAssignee", fields: [assigneeId], references: [id])
+  messages     SupportMessage[]
+
+  @@index([userId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model SupportMessage {
+  id           String     @id @default(cuid())
+  ticketId     String
+  senderId     String                             // userId or adminId
+  senderType   String                             // "user" or "admin"
+  adminId      String?                            // Set if senderType = "admin"
+  body         String     @db.Text
+  isInternal   Boolean    @default(false)         // Internal notes (not visible to user)
+  attachments  Json?                              // [{filename, s3Key, mimeType}]
+
+  createdAt    DateTime   @default(now())
+
+  ticket       SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  admin        AdminUser?    @relation(fields: [adminId], references: [id])
+
+  @@index([ticketId])
+}
+
+model CannedResponse {
+  id          String     @id @default(cuid())
+  title       String
+  body        String     @db.Text
+  category    String?                             // billing, parsing, general
+  isActive    Boolean    @default(true)
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
 }

@@ -13,14 +13,15 @@
     "dependencies": {
         "@aws-sdk/client-s3": "^3.700.0",
         "@aws-sdk/s3-request-presigner": "^3.700.0",
+        "@banklens/shared": "workspace:*",
         "@fastify/cors": "^10.0.0",
         "@fastify/helmet": "^13.0.0",
         "@prisma/client": "^6.4.0",
-        "@banklens/shared": "workspace:*",
         "@trpc/server": "^11.0.0",
         "bullmq": "^5.30.0",
         "fastify": "^5.2.0",
         "ioredis": "^5.4.0",
+        "jose": "^6.0.11",
         "next-auth": "5.0.0-beta.25",
         "pino": "^9.6.0",
         "pino-pretty": "^13.0.0",
@@ -30,8 +31,11 @@
         "seed": "tsx prisma/seed.ts"
     },
     "devDependencies": {
+        "@types/bcryptjs": "^3.0.0",
         "@types/node": "^22.0.0",
+        "bcryptjs": "^3.0.3",
         "eslint": "^9.0.0",
+        "otpauth": "^9.5.0",
         "prisma": "^6.4.0",
         "tsc-alias": "^1.8.0",
         "tsx": "^4.19.0",
