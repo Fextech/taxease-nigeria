@@ -44,6 +44,7 @@ function SettingsContent() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [taxIdentificationNumber, setTaxIdentificationNumber] = useState("");
   const [professionalCategory, setProfessionalCategory] = useState("");
   const [stateOfResidence, setStateOfResidence] = useState("");
 
@@ -55,6 +56,16 @@ function SettingsContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // Change Password state
+  const [cpCurrent, setCpCurrent] = useState("");
+  const [cpNew, setCpNew] = useState("");
+  const [cpConfirm, setCpConfirm] = useState("");
+  const [showCpCurrent, setShowCpCurrent] = useState(false);
+  const [showCpNew, setShowCpNew] = useState(false);
+  const [cpLoading, setCpLoading] = useState(false);
+  const [cpError, setCpError] = useState("");
+  const [cpSuccess, setCpSuccess] = useState("");
 
   // Billing state
   const [billingLoading, setBillingLoading] = useState(false);
@@ -175,6 +186,7 @@ function SettingsContent() {
           setName(data.name || "");
           setEmail(data.email || "");
           setPhone(data.phone || "");
+          setTaxIdentificationNumber(data.taxIdentificationNumber || "");
           setProfessionalCategory(data.professionalCategory || "");
           setStateOfResidence(data.stateOfResidence || "");
         }
@@ -196,6 +208,7 @@ function SettingsContent() {
           action: "update",
           name,
           phone,
+          taxIdentificationNumber,
           professionalCategory,
           stateOfResidence,
         }),
@@ -259,6 +272,33 @@ function SettingsContent() {
       setStep("idle"); setCode("");
     } catch { setError("Something went wrong."); }
     finally { setLoading(false); }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setCpError(""); setCpSuccess("");
+    if (cpNew !== cpConfirm) { setCpError("New passwords do not match."); return; }
+    if (cpNew.length < 8) { setCpError("New password must be at least 8 characters."); return; }
+    
+    setCpLoading(true);
+    try {
+      const res = await fetch("/api/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "change_password",
+          currentPassword: cpCurrent,
+          newPassword: cpNew,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setCpError(data.error || "Failed to change password"); return; }
+      
+      setCpSuccess("Password changed successfully!");
+      setCpCurrent(""); setCpNew(""); setCpConfirm("");
+      setTimeout(() => setCpSuccess(""), 4000);
+    } catch { setCpError("Something went wrong."); }
+    finally { setCpLoading(false); }
   };
 
   return (
@@ -325,6 +365,10 @@ function SettingsContent() {
                 <div className="settings-field">
                   <label className="settings-label">Phone Number</label>
                   <input className="settings-input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+234..." />
+                </div>
+                <div className="settings-field">
+                  <label className="settings-label">Tax Identification Number (TIN)</label>
+                  <input className="settings-input" value={taxIdentificationNumber} onChange={(e) => setTaxIdentificationNumber(e.target.value)} placeholder="e.g. 12345678-0001" />
                 </div>
                 <div className="settings-field">
                   <label className="settings-label">Professional Category</label>
@@ -473,6 +517,103 @@ function SettingsContent() {
                 </div>
               </form>
             )}
+
+            {/* Change Password Section */}
+            <div className="settings-section-divider" style={{ borderTop: "1px solid var(--te-border)", margin: "32px 0", paddingTop: "32px" }}>
+              <div className="settings-card-header" style={{ borderBottom: "none", paddingBottom: "16px", paddingLeft: "0", paddingRight: "0", paddingTop: "0" }}>
+                <div>
+                  <h3 className="sec-mfa-label" style={{ marginBottom: "4px" }}>Change Password</h3>
+                  <p className="sec-mfa-desc">Update your account login password</p>
+                </div>
+              </div>
+
+              {cpSuccess && (
+                <div className="settings-alert settings-alert--success" style={{ marginBottom: "20px" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check_circle</span>
+                  {cpSuccess}
+                </div>
+              )}
+              {cpError && (
+                <div className="settings-alert settings-alert--error" style={{ marginBottom: "20px" }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>error</span>
+                  {cpError}
+                </div>
+              )}
+
+              <form onSubmit={handleChangePassword} className="settings-form" style={{ maxWidth: "500px" }}>
+                <div className="settings-field">
+                  <label className="settings-label">Current Password</label>
+                  <div className="relative flex items-center">
+                    <input
+                      type={showCpCurrent ? "text" : "password"}
+                      value={cpCurrent}
+                      onChange={(e) => setCpCurrent(e.target.value)}
+                      placeholder="••••••••"
+                      className="settings-input w-full"
+                      required
+                      style={{ paddingRight: "40px" }}
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 text-slate-400 hover:text-white transition-colors flex items-center justify-center h-full"
+                      onClick={() => setShowCpCurrent(!showCpCurrent)}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                        {showCpCurrent ? "visibility_off" : "visibility"}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="settings-field">
+                  <label className="settings-label">New Password</label>
+                  <div className="relative flex items-center">
+                    <input
+                      type={showCpNew ? "text" : "password"}
+                      value={cpNew}
+                      onChange={(e) => setCpNew(e.target.value)}
+                      placeholder="••••••••"
+                      className="settings-input w-full"
+                      required
+                      minLength={8}
+                      style={{ paddingRight: "40px" }}
+                    />
+                    <button
+                      type="button"
+                      className="absolute right-3 text-slate-400 hover:text-white transition-colors flex items-center justify-center h-full"
+                      onClick={() => setShowCpNew(!showCpNew)}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                        {showCpNew ? "visibility_off" : "visibility"}
+                      </span>
+                    </button>
+                  </div>
+                  <p className="settings-hint">Min 8 characters, with uppercase, lowercase, and a number</p>
+                </div>
+
+                <div className="settings-field">
+                  <label className="settings-label">Confirm New Password</label>
+                  <div className="relative flex items-center">
+                    <input
+                      type={showCpNew ? "text" : "password"}
+                      value={cpConfirm}
+                      onChange={(e) => setCpConfirm(e.target.value)}
+                      placeholder="••••••••"
+                      className="settings-input w-full"
+                      required
+                      minLength={8}
+                      style={{ paddingRight: "40px" }}
+                    />
+                  </div>
+                </div>
+
+                <div className="settings-actions" style={{ justifyContent: "flex-start", marginTop: "8px" }}>
+                  <button type="submit" className="settings-btn-primary" disabled={cpLoading}>
+                    {cpLoading ? "Updating..." : "Update Password"}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         )}
 

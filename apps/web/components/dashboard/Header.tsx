@@ -11,10 +11,53 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
 
   const [profileOpen, setProfileOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   const profileRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
+
+  // Fetch notifications
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const fetchNotifs = async () => {
+      try {
+        const res = await fetch("/api/notifications");
+        if (res.ok) setNotifications(await res.json());
+      } catch { /* silent */ }
+    };
+    fetchNotifs();
+    // Poll every 30 seconds
+    const interval = setInterval(fetchNotifs, 30000);
+    return () => clearInterval(interval);
+  }, [session?.user?.id]);
+
+  const unreadCount = notifications.filter(n => !n.isRead).length;
+
+  const handleMarkRead = async (id: string, link?: string) => {
+    try {
+      await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_read", notificationId: id })
+      });
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, isRead: true } : n));
+      if (link) router.push(link);
+    } catch { /* silent */ }
+  };
+
+  const handleMarkAllRead = async () => {
+    try {
+      await fetch("/api/notifications", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "mark_all_read" })
+      });
+      setNotifications(prev => prev.map(n => ({ ...n, isRead: true })));
+    } catch { /* silent */ }
+  };
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
@@ -23,6 +66,9 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
       }
       if (workspaceRef.current && !workspaceRef.current.contains(e.target as Node)) {
         setWorkspaceOpen(false);
+      }
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setNotifOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClick);
@@ -126,10 +172,76 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
 
         <div className="dash-header-right">
           {/* Notifications */}
-          <button className="dash-notif-btn">
-            <span className="material-symbols-outlined">notifications</span>
-            <span className="dash-notif-dot" />
-          </button>
+          <div className="dash-profile-wrap" ref={notifRef}>
+            <button 
+              className="dash-notif-btn" 
+              onClick={() => setNotifOpen(v => !v)}
+              aria-expanded={notifOpen}
+            >
+              <span className="material-symbols-outlined">notifications</span>
+              {unreadCount > 0 && <span className="dash-notif-dot" />}
+            </button>
+
+            {notifOpen && (
+              <div className="dash-profile-dropdown" style={{ width: 320, padding: "8px 0" }}>
+                <div className="dash-dropdown-header" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <p className="dash-dropdown-name">Notifications</p>
+                  {unreadCount > 0 && (
+                    <button onClick={handleMarkAllRead} className="text-xs text-slate-400 hover:text-white transition-colors">
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+                <div className="dash-dropdown-divider" style={{ marginBottom: 0 }} />
+                
+                <div style={{ maxHeight: 300, overflowY: "auto" }}>
+                  {notifications.length === 0 ? (
+                    <div style={{ padding: "24px 16px", textAlign: "center", color: "var(--te-text-muted)", fontSize: 13 }}>
+                      You have no notifications.
+                    </div>
+                  ) : (
+                    notifications.map(n => {
+                      const icon = n.type === "SUCCESS" ? "check_circle" : 
+                                   n.type === "ERROR" ? "error" : "info";
+                      const iconColor = n.type === "SUCCESS" ? "#10b981" : 
+                                        n.type === "ERROR" ? "#ef4444" : "#3b82f6";
+
+                      return (
+                        <button 
+                          key={n.id}
+                          className="dash-dropdown-item"
+                          onClick={() => handleMarkRead(n.id, n.link)}
+                          style={{
+                            alignItems: "flex-start",
+                            padding: "12px 16px",
+                            height: "auto",
+                            background: n.isRead ? "transparent" : "rgba(255,255,255,0.03)",
+                            gap: 12
+                          }}
+                        >
+                          <span className="material-symbols-outlined mt-0.5" style={{ fontSize: 18, color: iconColor }}>{icon}</span>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4, alignItems: "flex-start", textAlign: "left" }}>
+                            <span style={{ fontSize: 13, fontWeight: n.isRead ? 500 : 600, color: n.isRead ? "var(--te-text-secondary)" : "#fff" }}>
+                              {n.title}
+                            </span>
+                            <span style={{ fontSize: 12, color: "var(--te-text-muted)", lineHeight: 1.4, whiteSpace: "normal" }}>
+                              {n.message}
+                            </span>
+                            <span style={{ fontSize: 11, color: "var(--te-text-muted)", marginTop: 4 }}>
+                              {new Date(n.createdAt).toLocaleDateString()}
+                            </span>
+                          </div>
+                          {!n.isRead && (
+                            <div style={{ width: 8, height: 8, borderRadius: 4, background: "var(--te-primary)", marginTop: 6, marginLeft: "auto", flexShrink: 0 }} />
+                          )}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           <div className="dash-header-sep" />
 

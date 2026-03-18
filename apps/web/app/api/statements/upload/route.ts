@@ -135,6 +135,17 @@ export async function POST(request: Request) {
             }),
             ]);
 
+            // Create notification
+            await prisma.notification.create({
+                data: {
+                    userId: session.user.id,
+                    title: 'Statement Uploaded',
+                    message: `File "${data.originalFilename}" has been uploaded and queued for processing. This may take a few minutes.`,
+                    type: 'INFO',
+                    link: '/statements'
+                }
+            });
+
             // Enqueue job for background worker
             try {
                 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';

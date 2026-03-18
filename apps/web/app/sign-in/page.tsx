@@ -3,6 +3,7 @@
 import { signIn } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
+import Image from "next/image";
 
 function SignInContent() {
   const searchParams = useSearchParams();
@@ -12,6 +13,7 @@ function SignInContent() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState("");
 
@@ -53,11 +55,11 @@ function SignInContent() {
     <div className="signin-page">
       <div className="signin-card">
         {/* Logo & Branding */}
-        <div className="signin-header">
-          <div className="signin-logo">
-            <span className="signin-logo-icon">🇳🇬</span>
+        <div className="signin-header text-center flex flex-col items-center">
+          <div className="bg-white p-4 rounded-2xl shadow-sm mb-6 flex items-center justify-center" style={{ width: "200px", height: "60px" }}>
+            <Image src="/Banklense-logo.svg" alt="Banklens Nigeria" width={160} height={64} style={{ width: "100%", height: "auto" }} priority />
           </div>
-          <h1 className="signin-title">Banklens Nigeria</h1>
+          {/* <h1 className="signin-title">Banklens Nigeria</h1> */}
           <p className="signin-subtitle">
             Sign in to manage your tax returns
           </p>
@@ -116,17 +118,30 @@ function SignInContent() {
               <label htmlFor="password" className="signin-label">Password</label>
               <a href="/forgot-password" className="signin-forgot">Forgot password?</a>
             </div>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="signin-input"
-              required
-              autoComplete="current-password"
-              minLength={8}
-            />
+            <div className="signin-password-wrapper">
+              <input
+                id="password"
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="signin-input"
+                required
+                autoComplete="current-password"
+                minLength={8}
+                style={{ paddingRight: "40px" }}
+              />
+              <button
+                type="button"
+                className="signin-password-toggle"
+                onClick={() => setShowPassword(!showPassword)}
+                aria-label={showPassword ? "Hide password" : "Show password"}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                  {showPassword ? "visibility_off" : "visibility"}
+                </span>
+              </button>
+            </div>
           </div>
           <button
             type="submit"

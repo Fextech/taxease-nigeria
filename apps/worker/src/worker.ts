@@ -170,11 +170,13 @@ const parseStatementWorker = new Worker(
     async (job: Job) => {
         const { statementId } = job.data;
         logger.info({ jobId: job.id, statementId }, '📄 Processing parse-statement job');
+        let statement: any = null;
 
         try {
             // 1. Fetch statement record from DB
-            const statement = await prisma.statement.findUnique({
+            statement = await prisma.statement.findUnique({
                 where: { id: statementId },
+                include: { workspace: true },
             });
 
             if (!statement) {
@@ -270,19 +272,41 @@ const parseStatementWorker = new Worker(
                 },
             });
 
+            await prisma.notification.create({
+                data: {
+                    userId: statement.workspace.userId,
+                    title: 'Statement Processed',
+                    message: `Successfully extracted ${parseResult.row_count} transactions from your statement.`,
+                    type: 'SUCCESS',
+                    link: '/statements'
+                }
+            });
+
             await job.updateProgress(100);
             logger.info({ jobId: job.id, statementId }, '✅ Parse-statement job completed');
         } catch (error) {
             logger.error({ jobId: job.id, statementId, error }, '❌ Parse-statement job failed');
 
             try {
-                await prisma.statement.update({
-                    where: { id: statementId },
-                    data: {
-                        parseStatus: 'ERROR',
-                        errorMessage: error instanceof Error ? error.message : String(error),
-                    },
-                });
+                if (statement) {
+                    await prisma.statement.update({
+                        where: { id: statementId },
+                        data: {
+                            parseStatus: 'ERROR',
+                            errorMessage: error instanceof Error ? error.message : String(error),
+                        },
+                    });
+
+                    await prisma.notification.create({
+                        data: {
+                            userId: statement.workspace.userId,
+                            title: 'Statement Processing Failed',
+                            message: `Failed to process ${statement.originalFilename}.`,
+                            type: 'ERROR',
+                            link: '/statements'
+                        }
+                    });
+                }
             } catch {
                 logger.error({ statementId }, 'Failed to update statement error status');
             }
@@ -360,7 +384,7 @@ const generateReportWorker = new Worker(
                 taxYear: workspace.taxYear,
                 userName: user.name || user.email,
                 professionalCategory: user.professionalCategory || 'N/A',
-                tin: 'Not Provided',
+                tin: user.taxIdentificationNumber || 'Not Provided',
                 grossIncome: formatKobo(grossIncome),
                 taxLiability: formatKobo(taxResult.taxLiability),
                 totalInflow: formatKobo(totalInflow),

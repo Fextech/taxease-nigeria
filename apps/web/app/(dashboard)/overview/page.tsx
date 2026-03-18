@@ -109,9 +109,20 @@ export default function DashboardPage() {
 
   if (!activeWorkspace || !data) {
     return (
-      <div className="dash-empty">
-        <span className="material-symbols-outlined" style={{ fontSize: 32, color: "var(--te-text-muted)" }}>dashboard</span>
-        <p>Create or select a Tax Year from the header to view your dashboard.</p>
+      <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
+        <div className="bg-white border border-slate-200 rounded-3xl p-10 max-w-md w-full text-center shadow-sm">
+          <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <span className="material-symbols-outlined text-4xl text-emerald-500">add_business</span>
+          </div>
+          <h2 className="text-2xl font-bold text-slate-800 mb-3 tracking-snug">No Workspace Selected</h2>
+          <p className="text-slate-500 mb-8 leading-relaxed">
+            Create a new Tax Year or select an existing one from the dropdown in the header above to view your dashboard.
+          </p>
+          <div className="inline-flex items-center gap-2 text-sm text-slate-400 bg-slate-50 px-4 py-2 rounded-lg border border-slate-100">
+            <span className="material-symbols-outlined text-base">arrow_upward</span>
+            Use the selector in the top left
+          </div>
+        </div>
       </div>
     );
   }
@@ -212,7 +223,7 @@ export default function DashboardPage() {
               <h4 className="card-title">Tax Year {activeWorkspace.taxYear} Compliance</h4>
             </div>
             <p className="card-subtitle">Ensure all monthly statements are uploaded to avoid penalties.</p>
-            
+
             <div className="compliance-list">
               {data.compliance.map((c) => {
                 const style = getStatusStyle(c.status);
@@ -244,7 +255,7 @@ export default function DashboardPage() {
             <h4 className="card-title">Recent Transactions</h4>
             <a href="/annotations" className="tx-view-all">View All →</a>
           </div>
-          
+
           <div className="tx-table-wrap">
             <table className="tx-table">
               <thead>
@@ -266,7 +277,7 @@ export default function DashboardPage() {
                   const isCredit = BigInt(tx.creditAmount) > 0n;
                   const amount = isCredit ? tx.creditAmount : tx.debitAmount;
                   const annStatus = tx.annotationStatus || "UNANNOTATED";
-                  
+
                   return (
                     <tr key={tx.id}>
                       <td className="tx-date">{formatDate(tx.date)}</td>

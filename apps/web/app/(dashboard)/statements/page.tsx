@@ -5,6 +5,8 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 import { StatementUploader } from "@/components/dashboard/StatementUploader";
+import Lottie from "lottie-react";
+import searchDocAnimation from "../../../public/Search-Doc-Animation.json";
 
 const months = [
   { short: "JAN", full: "January" },
@@ -540,11 +542,13 @@ export default function StatementsPage() {
                   </div>
 
                   {(stmt.parseStatus === "PROCESSING" || stmt.parseStatus === "UPLOADED") && (
-                    <div className="file-progress" style={{ marginTop: "16px" }}>
-                      <span className="file-status-text">Analyzing transactions...</span>
-                      <div className="progress-bar">
-                        <div className="progress-fill progress-fill--pulse" style={{ width: "100%" }} />
-                      </div>
+                    <div className="file-progress" style={{ marginTop: "16px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+                      <Lottie 
+                        animationData={searchDocAnimation} 
+                        loop={true} 
+                        style={{ height: 120, width: 120 }} 
+                      />
+                      <span className="file-status-text" style={{ marginTop: "0px", fontWeight: 500 }}>Analyzing statement...</span>
                     </div>
                   )}
                   <button

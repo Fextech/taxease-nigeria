@@ -71,6 +71,7 @@ model User {
   image                String?
   password             String?      // Hashed; null for OAuth-only users
   phone                String?
+  taxIdentificationNumber String?
   professionalCategory String?
   stateOfResidence     String?      // Nigerian state for IRS portal link
   plan                 UserPlan     @default(FREE)
@@ -90,6 +91,7 @@ model User {
   delegationsGiven     Delegation[] @relation("DelegationOwner")
   delegationsReceived  Delegation[] @relation("DelegationDelegate")
   auditLogs            AuditLog[]
+  notifications        Notification[]
   subscription         Subscription?
 
   @@index([email])
@@ -276,6 +278,24 @@ model AuditLog {
 
   @@index([userId])
   @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  message     String
+  type        String   @default("INFO") // INFO, SUCCESS, ERROR, WARNING
+  link        String?
+  isRead      Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  deletedAt   DateTime?
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
   @@index([createdAt])
 }
 

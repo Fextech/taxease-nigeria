@@ -1860,6 +1860,31 @@
   box-shadow: 0 0 0 3px rgba(240, 160, 48, 0.1);
 }
 
+.signin-password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.signin-password-toggle {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  transition: color 0.15s;
+}
+
+.signin-password-toggle:hover {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+
 .signin-submit-btn {
   width: 100%;
   padding: 14px 24px;
@@ -2074,6 +2099,30 @@
   border-color: rgba(240, 160, 48, 0.5);
   background: rgba(255, 255, 255, 0.08);
   box-shadow: 0 0 0 3px rgba(240, 160, 48, 0.1);
+}
+
+.signup-password-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.signup-password-toggle {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  transition: color 0.15s;
+}
+
+.signup-password-toggle:hover {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .signup-hint {

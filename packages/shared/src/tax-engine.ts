@@ -200,15 +200,20 @@ export function computeTax(input: TaxComputationInput): TaxComputationResult {
 
     // 6. Apply minimum tax rule
     //    If the computed tax is less than minimumTaxRate × gross, use the minimum instead
-    const minimumTax = applyRate(grossIncome, config.minimumTaxRate);
     let taxLiability: bigint;
     let minimumTaxApplied = false;
 
-    if (totalTax < minimumTax && taxableIncome > 0n) {
-        taxLiability = minimumTax;
-        minimumTaxApplied = true;
-    } else {
+    if (config.minimumTaxRate === 0) {
+        // Minimum tax is abolished (e.g. 2026+)
         taxLiability = totalTax;
+    } else {
+        const minimumTax = applyRate(grossIncome, config.minimumTaxRate);
+        if (totalTax < minimumTax && taxableIncome > 0n) {
+            taxLiability = minimumTax;
+            minimumTaxApplied = true;
+        } else {
+            taxLiability = totalTax;
+        }
     }
 
     // 7. Effective rate = (tax / gross) × 100

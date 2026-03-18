@@ -91,7 +91,7 @@ export const TAX_BANDS: Record<number, TaxBandConfig> = {
         craFixedAmount: 0n,              // CRA eliminated in 2026
         craGrossPercentage: 0,
         craAdditionalPercentage: 0,
-        minimumTaxRate: 0.01,            // 1% minimum tax still applies
+        minimumTaxRate: 0.00,            // Minimum tax eliminated in 2026
         taxFreeThreshold: 80000000n,     // ₦800,000 in kobo
         rentReliefEnabled: true,
         maxRentRelief: 50000000n,        // ₦500,000 in kobo

@@ -2,6 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import Image from "next/image";
+import Link from "next/link";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -9,6 +11,8 @@ export default function SignUpPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
@@ -50,11 +54,11 @@ export default function SignUpPage() {
     <div className="signup-page">
       <div className="signup-card">
         {/* Logo & Branding */}
-        <div className="signup-header">
-          <div className="signup-logo">
-            <span className="signup-logo-icon">🇳🇬</span>
+        <div className="signup-header text-center flex flex-col items-center">
+          <div className="bg-white p-4 rounded-2xl shadow-sm mb-6 flex items-center justify-center" style={{ width: "200px", height: "60px" }}>
+            <Image src="/Banklense-logo.svg" alt="Banklens Nigeria" width={160} height={64} style={{ width: "100%", height: "auto" }} priority />
           </div>
-          <h1 className="signup-title">Create your account</h1>
+          {/* <h1 className="signup-title">Create your account</h1> */}
           <p className="signup-subtitle">
             Get started with Banklens Nigeria
           </p>
@@ -113,34 +117,60 @@ export default function SignUpPage() {
             </div>
             <div className="signup-field">
               <label htmlFor="password" className="signup-label">Password</label>
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="signup-input"
-                required
-                minLength={8}
-                autoComplete="new-password"
-              />
+              <div className="signup-password-wrapper">
+                <input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="signup-input"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  style={{ paddingRight: "40px" }}
+                />
+                <button
+                  type="button"
+                  className="signup-password-toggle"
+                  onClick={() => setShowPassword(!showPassword)}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                    {showPassword ? "visibility_off" : "visibility"}
+                  </span>
+                </button>
+              </div>
               <span className="signup-hint">
                 Min 8 characters, with uppercase, lowercase, and a number
               </span>
             </div>
             <div className="signup-field">
               <label htmlFor="confirmPassword" className="signup-label">Confirm Password</label>
-              <input
-                id="confirmPassword"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="••••••••"
-                className="signup-input"
-                required
-                minLength={8}
-                autoComplete="new-password"
-              />
+              <div className="signup-password-wrapper">
+                <input
+                  id="confirmPassword"
+                  type={showConfirmPassword ? "text" : "password"}
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="signup-input"
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  style={{ paddingRight: "40px" }}
+                />
+                <button
+                  type="button"
+                  className="signup-password-toggle"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                    {showConfirmPassword ? "visibility_off" : "visibility"}
+                  </span>
+                </button>
+              </div>
             </div>
             <button
               type="submit"
@@ -155,7 +185,15 @@ export default function SignUpPage() {
         {/* Sign In Link */}
         <p className="signup-signin-link">
           Already have an account?{" "}
-          <a href="/sign-in" className="signup-link-accent">Sign in</a>
+          <Link href="/sign-in" className="signup-link-accent">Sign in</Link>
+        </p>
+
+        {/* Footer Info */}
+        <p className="signup-footer mt-6 text-center text-[13px] text-slate-400">
+          By signing up, you agree to our{" "}
+          <Link href="/terms" className="signup-link hover:text-white transition-colors underline underline-offset-2">Terms of Service</Link>
+          {" "}and{" "}
+          <Link href="/privacy" className="signup-link hover:text-white transition-colors underline underline-offset-2">Privacy Policy</Link>.
         </p>
       </div>
 
