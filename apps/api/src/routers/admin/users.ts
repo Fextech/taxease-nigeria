@@ -116,6 +116,11 @@ export const adminUsersRouter = router({
             // Mask email by default
             const maskedEmail = user.email.replace(/(?<=.).(?=[^@]*?.@)/g, '*');
 
+            const supportTickets = await ctx.prisma.supportTicket.findMany({
+                where: { userId: input.id },
+                orderBy: { createdAt: 'desc' }
+            });
+
             // Convert all dates to ISO strings so they serialise cleanly
             return {
                 id: user.id,
@@ -130,6 +135,14 @@ export const adminUsersRouter = router({
                 createdAt: user.createdAt.toISOString(),
                 updatedAt: user.updatedAt.toISOString(),
                 deletedAt: user.deletedAt?.toISOString() ?? null,
+                supportTickets: supportTickets.map((t) => ({
+                    id: t.id,
+                    subject: t.subject,
+                    category: t.category,
+                    status: t.status,
+                    priority: t.priority,
+                    createdAt: t.createdAt.toISOString(),
+                })),
                 subscription: user.subscription ? {
                     id: user.subscription.id,
                     plan: user.subscription.plan,
@@ -147,6 +160,7 @@ export const adminUsersRouter = router({
                     id: ws.id,
                     taxYear: ws.taxYear,
                     status: ws.status,
+                    isUnlocked: ws.isUnlocked,
                     createdAt: ws.createdAt.toISOString(),
                     statements: ws.statements.map((s) => ({
                         id: s.id,

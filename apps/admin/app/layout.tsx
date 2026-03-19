@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
 import { Providers } from "./providers";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 const geist = Geist({ subsets: ["latin"], variable: "--font-sans" });
@@ -26,7 +27,10 @@ export default function RootLayout({
         <meta name="robots" content="noindex, nofollow" />
       </head>
       <body className={`${geist.variable} antialiased`} style={{ margin: 0 }}>
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <Toaster position="top-center" richColors closeButton />
+        </Providers>
       </body>
     </html>
   );

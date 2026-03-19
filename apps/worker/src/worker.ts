@@ -9,8 +9,7 @@ import fs from 'fs';
 import path from 'path';
 import { computeTax, type Relief } from '@banklens/shared';
 
-const resendClient = new Resend(process.env.RESEND_API_KEY);
-const FROM_EMAIL = process.env.EMAIL_FROM || "Banklens Nigeria <onboarding@resend.dev>";
+// ─── Logger ──────────────────────────────────────────────
 
 const logger = pino({
     transport: {
@@ -19,13 +18,29 @@ const logger = pino({
     },
 });
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+// ─── Redis Connection (Upstash-compatible) ───────────────
 
-// Use inline connection config to avoid ioredis version mismatch with BullMQ
+const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const parsedUrl = new URL(REDIS_URL);
+
 const redisConnection = {
-    host: new URL(REDIS_URL).hostname || 'localhost',
-    port: Number(new URL(REDIS_URL).port) || 6379,
+    host: parsedUrl.hostname,
+    port: Number(parsedUrl.port) || 6379,
+    password: parsedUrl.password || undefined,
+    tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
 };
+
+// ─── Resend (lazy init to avoid startup crash) ───────────
+
+function getResendClient(): Resend {
+    const apiKey = process.env.RESEND_API_KEY;
+    if (!apiKey) throw new Error('RESEND_API_KEY environment variable is not set');
+    return new Resend(apiKey);
+}
+
+const FROM_EMAIL = process.env.EMAIL_FROM || "Banklens Nigeria <onboarding@resend.dev>";
 
 const PARSER_URL = process.env.PARSER_URL || 'http://localhost:8000';
 
@@ -118,7 +133,6 @@ function organizeTransactionsByMonth(transactions: any[]) {
         if (!isCredit && isTaxable) monthData.directBusinessExpenses += taxableAmount;
         if (!isCredit && !isTaxable) monthData.otherExpenses += amount;
 
-        // Only show income (credits) and direct business expenses (taxable debits) in the table
         const isDirectBusinessExpense = !isCredit && isTaxable;
         if (isCredit || isDirectBusinessExpense) {
             monthData.transactions.push({
@@ -132,7 +146,6 @@ function organizeTransactionsByMonth(transactions: any[]) {
         }
     }
 
-    // Format totals
     return Array.from(months.values()).map(m => ({
         ...m,
         grossIncome: formatKobo(m.grossIncome),
@@ -173,7 +186,6 @@ const parseStatementWorker = new Worker(
         let statement: any = null;
 
         try {
-            // 1. Fetch statement record from DB
             statement = await prisma.statement.findUnique({
                 where: { id: statementId },
                 include: { workspace: true },
@@ -185,7 +197,6 @@ const parseStatementWorker = new Worker(
 
             await job.updateProgress(10);
 
-            // 2. Download the file from S3
             let fileBuffer: Buffer;
             try {
                 fileBuffer = await downloadFromS3(statement.s3Key);
@@ -207,7 +218,6 @@ const parseStatementWorker = new Worker(
 
             await job.updateProgress(30);
 
-            // 3. Send the file to the Python parser service
             let parseResult: ParserResponse;
 
             try {
@@ -235,7 +245,6 @@ const parseStatementWorker = new Worker(
 
             await job.updateProgress(60);
 
-            // 4. Bulk insert parsed transactions into the database
             if (!parseResult.transactions || parseResult.transactions.length === 0) {
                 throw new Error("Parser returned 0 transactions. The file may be an unsupported format, poorly scanned, or empty.");
             }
@@ -260,7 +269,6 @@ const parseStatementWorker = new Worker(
 
             await job.updateProgress(85);
 
-            // 5. Update statement record with results
             await prisma.statement.update({
                 where: { id: statementId },
                 data: {
@@ -311,20 +319,18 @@ const parseStatementWorker = new Worker(
                 logger.error({ statementId }, 'Failed to update statement error status');
             }
 
-            throw error; // Re-throw so BullMQ retries
+            throw error;
         }
     },
     {
         connection: redisConnection,
         concurrency: 3,
-        // Gemini can take several minutes for large bank statements.
-        // Increase lock duration so BullMQ doesn't mark the job as stalled.
-        lockDuration: 600_000,      // 10 minutes
-        lockRenewTime: 300_000,     // Renew lock every 5 minutes
+        lockDuration: 600_000,
+        lockRenewTime: 300_000,
     }
 );
 
-// ─── Generate Report Worker (stub) ──────────────────────
+// ─── Generate Report Worker ──────────────────────────────
 
 const generateReportWorker = new Worker(
     'generate-report',
@@ -333,7 +339,6 @@ const generateReportWorker = new Worker(
         logger.info({ jobId: job.id, workspaceId }, '📊 Processing generate-report job');
 
         try {
-            // 1. Fetch data
             const user = await prisma.user.findUnique({ where: { id: userId } });
             const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
 
@@ -345,7 +350,6 @@ const generateReportWorker = new Worker(
                 orderBy: { transactionDate: 'asc' }
             });
 
-            // 2. Compute Top Level Summaries
             let grossIncome = 0n;
             let directBusinessExpenses = 0n;
             let otherExpenses = 0n;
@@ -397,16 +401,14 @@ const generateReportWorker = new Worker(
                 currentYear: new Date().getFullYear(),
             };
 
-            // 3. Render HTML
             const templatePath = path.join(__dirname, 'templates', 'report.hbs');
             const templateSource = fs.readFileSync(templatePath, 'utf8');
             const template = Handlebars.compile(templateSource);
             const html = template(templateData);
 
-            // 4. Generate PDF
-            const browser = await puppeteer.launch({ 
+            const browser = await puppeteer.launch({
                 executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-                args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+                args: ['--no-sandbox', '--disable-setuid-sandbox']
             });
             const page = await browser.newPage();
             await page.setContent(html, { waitUntil: 'networkidle0' });
@@ -414,7 +416,9 @@ const generateReportWorker = new Worker(
             const pdfBuffer = Buffer.from(pdfUint8Array);
             await browser.close();
 
-            // 5. Send Email
+            // Initialise Resend lazily — only when actually sending
+            const resendClient = getResendClient();
+
             await resendClient.emails.send({
                 from: FROM_EMAIL,
                 to: userEmail,
