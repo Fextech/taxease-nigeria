@@ -150,7 +150,7 @@ export const adminDashboardRouter = router({
             return `${Math.floor(hours / 24)}d ago`;
         };
 
-        return activities.slice(0, 5).map(a => ({
+        return activities.slice(0, 5).map((a) => ({
             icon: a.icon,
             color: a.color,
             title: a.title,

@@ -1,5 +1,4 @@
 import { prisma } from '../db/prisma.js';
-import type { Prisma } from '@prisma/client';
 
 /**
  * Log an auditable action to the AuditLog table.
@@ -9,8 +8,8 @@ export async function logAction(params: {
     entityType: string;
     entityId: string;
     action: string;
-    oldValue?: Prisma.JsonValue;
-    newValue?: Prisma.JsonValue;
+    oldValue?: Record<string, unknown> | null;
+    newValue?: Record<string, unknown> | null;
     ipAddress?: string;
     userAgent?: string;
 }) {
