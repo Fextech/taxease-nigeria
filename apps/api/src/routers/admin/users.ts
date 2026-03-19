@@ -138,17 +138,17 @@ export const adminUsersRouter = router({
                     billingCycleEnd: user.subscription.billingCycleEnd?.toISOString() ?? null,
                     createdAt: user.subscription.createdAt.toISOString(),
                 } : null,
-                accounts: user.accounts.map(a => ({
+                accounts: user.accounts.map((a) => ({
                     id: a.id,
                     provider: a.provider,
                     type: a.type,
                 })),
-                workspaces: user.workspaces.map(ws => ({
+                workspaces: user.workspaces.map((ws) => ({
                     id: ws.id,
                     taxYear: ws.taxYear,
                     status: ws.status,
                     createdAt: ws.createdAt.toISOString(),
-                    statements: ws.statements.map(s => ({
+                    statements: ws.statements.map((s) => ({
                         id: s.id,
                         month: s.month,
                         parseStatus: s.parseStatus,

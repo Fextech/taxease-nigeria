@@ -9,8 +9,8 @@ export async function logAction(params: {
     entityType: string;
     entityId: string;
     action: string;
-    oldValue?: Prisma.InputJsonValue;
-    newValue?: Prisma.InputJsonValue;
+    oldValue?: Prisma.JsonValue;
+    newValue?: Prisma.JsonValue;
     ipAddress?: string;
     userAgent?: string;
 }) {

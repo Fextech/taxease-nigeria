@@ -86,15 +86,15 @@ export const adminBillingRouter = router({
             }
 
             // Fetch users manually since there is no strict relation defined on PaystackTransaction
-            const userIds = [...new Set(items.map(i => i.userId).filter(Boolean))];
+            const userIds = [...new Set(items.map((i) => i.userId).filter((id): id is string => Boolean(id)))];
             const users = await ctx.prisma.user.findMany({
                 where: { id: { in: userIds } },
                 select: { id: true, name: true, email: true, plan: true }
             });
-            const userMap = new Map(users.map(u => [u.id, u]));
+            const userMap = new Map(users.map((u) => [u.id, u]));
 
             // Serialize amounts from BigInt to String to avoid TRPC serialization errors
-            const serializedItems = items.map(t => ({
+            const serializedItems = items.map((t) => ({
                 ...t,
                 user: t.userId ? userMap.get(t.userId) : null,
                 amountKobo: t.amount.toString(),

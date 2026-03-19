@@ -66,14 +66,14 @@ export const adminSupportRouter = router({
             }
 
             // Manually map users for names
-            const userIds = [...new Set(items.map(i => i.userId).filter(Boolean))];
+            const userIds = [...new Set(items.map((i) => i.userId).filter((id): id is string => Boolean(id)))];
             const users = await ctx.prisma.user.findMany({
                 where: { id: { in: userIds } },
                 select: { id: true, name: true, email: true }
             });
-            const userMap = new Map(users.map(u => [u.id, u]));
+            const userMap = new Map(users.map((u) => [u.id, u]));
 
-            const enrichedItems = items.map(t => ({
+            const enrichedItems = items.map((t) => ({
                 ...t,
                 user: userMap.get(t.userId) || { name: 'Unknown User' }
             }));
