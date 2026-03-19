@@ -1,8 +1,0 @@
-{
-  "name": "@banklens/parser",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "source .venv/bin/activate && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
-  }
-}
