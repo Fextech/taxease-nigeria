@@ -2,13 +2,47 @@
 
 import { trpc } from "@/lib/trpc";
 import { formatNumber, formatNGN } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 
 export default function DashboardPage() {
+  const router = useRouter();  
   const { data: kpis, isLoading: isKpisLoading } = trpc.admin.dashboard.getKpis.useQuery();
   const { data: chartData, isLoading: isChartLoading } = trpc.admin.dashboard.getChartData.useQuery();
+  const { data: topRegions, isLoading: isRegionsLoading } = trpc.admin.dashboard.getTopRegions.useQuery();
   const { data: activityData, isLoading: isActivityLoading } = trpc.admin.dashboard.getActivityFeed.useQuery(undefined, {
     refetchInterval: 5000, // Poll every 5s for "Live" effect
   });
+
+  const maxPayment = chartData?.payments ? Math.max(
+    1,
+    ...chartData.payments.workspaceUnlocks,
+    ...chartData.payments.creditPurchases,
+    ...chartData.payments.bankAddons
+  ) : 1;
+
+  const renderLine = (data: number[], color: string) => {
+    if (!data || data.length === 0) return null;
+    const w = 400; // viewbox width
+    const h = 80;  // viewbox height
+    const xStep = w / Math.max(data.length - 1, 1);
+    
+    const points = data.map((val, i) => {
+        const x = i * xStep;
+        const y = h - (val / maxPayment) * h;
+        return `${x},${y}`;
+    }).join(' ');
+
+    return (
+        <polyline
+            fill="none"
+            stroke={color}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            points={points}
+        />
+    );
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -18,11 +52,11 @@ export default function DashboardPage() {
           <span className="material-symbols-outlined" style={{ fontSize: 18 }}>search</span>
           Search Users
         </button>
-        <button className="admin-btn admin-btn--ghost" style={{ gap: 8, background: "var(--admin-surface)", border: "1px solid var(--admin-border)" }}>
+        <button onClick={() => router.push('/broadcast/compose')} className="admin-btn admin-btn--ghost" style={{ gap: 8, background: "var(--admin-surface)", border: "1px solid var(--admin-border)" }}>
           <span className="material-symbols-outlined" style={{ fontSize: 18 }}>campaign</span>
           New Broadcast
         </button>
-        <button className="admin-btn admin-btn--ghost" style={{ gap: 8, background: "var(--admin-surface)", border: "1px solid var(--admin-border)" }}>
+        <button onClick={() => router.push('/support')} className="admin-btn admin-btn--ghost" style={{ gap: 8, background: "var(--admin-surface)", border: "1px solid var(--admin-border)" }}>
           <span className="material-symbols-outlined" style={{ fontSize: 18 }}>support_agent</span>
           Open Tickets
         </button>
@@ -171,68 +205,71 @@ export default function DashboardPage() {
       {/* Bottom Row */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
         <div className="admin-card">
-          <h2 className="admin-card-title">Subscription Growth</h2>
-          <div style={{ padding: "40px 0", textAlign: "center", color: "var(--admin-text-muted)", fontSize: 13 }}>
-            <span className="material-symbols-outlined" style={{ fontSize: 36, opacity: 0.3, display: "block", marginBottom: 8 }}>
-              bar_chart
-            </span>
-            Chart renders with live data when API is connected
+          <div className="admin-card-header">
+            <h2 className="admin-card-title">Payment Growth (Live)</h2>
+            <div style={{ display: "flex", gap: 12, fontSize: 11, fontWeight: 600 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 4, background: "#10b981" }} /> Full Asset
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 4, background: "var(--admin-cyan)" }} /> Credits
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                <div style={{ width: 8, height: 8, borderRadius: 4, background: "#8b5cf6" }} /> Add-ons
+              </div>
+            </div>
+          </div>
+          <div style={{ padding: "20px 0 0", height: 120, position: "relative" }}>
+            {isChartLoading || !chartData ? (
+               <div style={{ textAlign: "center", color: "var(--admin-text-muted)", marginTop: 40 }}>Loading chart...</div>
+            ) : (
+              <svg width="100%" height="100%" viewBox="0 0 400 80" preserveAspectRatio="none" style={{ overflow: "visible" }}>
+                {renderLine(chartData.payments.workspaceUnlocks, "#10b981")}
+                {renderLine(chartData.payments.creditPurchases, "var(--admin-cyan)")}
+                {renderLine(chartData.payments.bankAddons, "#8b5cf6")}
+              </svg>
+            )}
+            {/* X-axis labels */}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
+              {chartData?.months.map(m => (
+                <span key={m} style={{ fontSize: 10, color: "var(--admin-text-muted)", fontWeight: 600 }}>{m}</span>
+              ))}
+            </div>
           </div>
         </div>
 
         <div className="admin-card">
-          <h2 className="admin-card-title">Top Regions (Lagos, Abuja, PH)</h2>
+          <h2 className="admin-card-title">Top Regions by State</h2>
           <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 16 }}>
-            {[
-              { region: "Lagos State", pct: 58 },
-              { region: "Abuja (FCT)", pct: 24 },
-              { region: "Rivers State", pct: 12 },
-            ].map((r) => (
-              <div key={r.region} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                <span style={{ fontSize: 13, color: "var(--admin-text)", width: 120 }}>{r.region}</span>
-                <div style={{ flex: 1, height: 8, background: "var(--admin-surface-hover)", borderRadius: 4, overflow: "hidden" }}>
-                  <div
-                    style={{
-                      width: `${r.pct}%`,
-                      height: "100%",
-                      background: "var(--admin-cyan)",
-                      borderRadius: 4,
-                      transition: "width 0.6s",
-                    }}
-                  />
+            {isRegionsLoading ? (
+               <div style={{ textAlign: "center", color: "var(--admin-text-muted)", padding: 20 }}>Loading regions...</div>
+            ) : (!topRegions || topRegions.length === 0) ? (
+               <div style={{ textAlign: "center", color: "var(--admin-text-muted)", padding: 20 }}>No regional data available yet.</div>
+            ) : (
+              topRegions.map((r) => (
+                <div key={r.region} style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                  <span style={{ fontSize: 13, color: "var(--admin-text)", width: 120, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.region}</span>
+                  <div style={{ flex: 1, height: 8, background: "var(--admin-surface-hover)", borderRadius: 4, overflow: "hidden" }}>
+                    <div
+                      style={{
+                        width: `${r.pct}%`,
+                        height: "100%",
+                        background: "var(--admin-cyan)",
+                        borderRadius: 4,
+                        transition: "width 0.6s",
+                      }}
+                    />
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--admin-cyan)", width: 40, textAlign: "right" }}>
+                    {r.pct}%
+                  </span>
                 </div>
-                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--admin-cyan)", width: 40, textAlign: "right" }}>
-                  {r.pct}%
-                </span>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>
 
-      {/* Server Status Bar */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          padding: "12px 16px",
-          background: "var(--admin-surface)",
-          borderRadius: "var(--admin-radius)",
-          border: "1px solid var(--admin-border)",
-          fontSize: 12,
-        }}
-      >
-        <span className="material-symbols-outlined" style={{ fontSize: 16, color: "var(--admin-success)" }}>
-          dns
-        </span>
-        <span style={{ fontWeight: 600, color: "var(--admin-text)" }}>SERVER STATUS</span>
-        <span style={{ color: "var(--admin-text-muted)" }}>LAG05-001</span>
-        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
-          <span className="admin-status-dot admin-status-dot--online" />
-          <span style={{ color: "var(--admin-success)", fontWeight: 600 }}>OPERATIONAL</span>
-        </span>
-      </div>
     </div>
   );
 }

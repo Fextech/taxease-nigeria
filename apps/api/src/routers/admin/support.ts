@@ -1,5 +1,6 @@
-import { adminProcedure, router } from '../../trpc/trpc.js';
-import { z } from 'zod';
+import { adminProcedure, router } from "../../trpc/trpc.js";
+import { z } from "zod";
+import { sendSupportReplyEmail } from "../../lib/mail.js";
 
 export const adminSupportRouter = router({
     getSupportStats: adminProcedure.query(async ({ ctx }) => {
@@ -102,7 +103,19 @@ export const adminSupportRouter = router({
                 select: { id: true, name: true, email: true, workspaces: true, subscription: true, plan: true }
             });
 
-            return { ticket, user };
+            // Handle BigInt serialization for Workspace data
+            const safeUser = user ? {
+                ...user,
+                workspaces: user.workspaces.map(w => ({
+                    ...w,
+                    totalIncome: w.totalIncome.toString(),
+                    totalTaxableIncome: w.totalTaxableIncome.toString(),
+                    totalTaxLiability: w.totalTaxLiability.toString(),
+                    annualRentAmount: w.annualRentAmount ? w.annualRentAmount.toString() : null
+                }))
+            } : null;
+
+            return { ticket, user: safeUser };
         }),
         
     replyToTicket: adminProcedure
@@ -135,6 +148,34 @@ export const adminSupportRouter = router({
                     where: { id: input.ticketId },
                     data: { status: 'AWAITING_USER', updatedAt: new Date() }
                 });
+            }
+
+            // Send email to user for public (non-internal) replies
+            if (!input.isInternal) {
+                try {
+                    const ticket = await ctx.prisma.supportTicket.findUnique({
+                        where: { id: input.ticketId },
+                        select: { subject: true, userId: true }
+                    });
+                    if (ticket) {
+                        const user = await ctx.prisma.user.findUnique({
+                            where: { id: ticket.userId },
+                            select: { email: true, name: true }
+                        });
+                        if (user?.email) {
+                            await sendSupportReplyEmail({
+                                email: user.email,
+                                name: user.name || "",
+                                subject: ticket.subject,
+                                ticketId: input.ticketId,
+                                replyBody: input.body,
+                            });
+                        }
+                    }
+                } catch (emailErr) {
+                    // Don't fail the reply if email sending fails — just log it
+                    console.error('[Support] Failed to send reply email:', emailErr);
+                }
             }
 
             return msg;

@@ -88,14 +88,102 @@ export const adminDashboardRouter = router({
     }),
 
     getChartData: adminProcedure.query(async ({ ctx }) => {
-        // Mock data to match design until full timeseries is needed
-        const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL'];
-        const barHeights = [55, 40, 65, 50, 70, 85, 60];
+        // We will return data for the last 7 months
+        const months: string[] = [];
+        const userCounts = Array(7).fill(0);
         
+        // Payment types tracking arrays
+        const workspaceUnlocks = Array(7).fill(0);
+        const creditPurchases = Array(7).fill(0);
+        const bankAddons = Array(7).fill(0);
+
+        const now = new Date();
+        for (let i = 6; i >= 0; i--) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            months.push(d.toLocaleString('default', { month: 'short' }).toUpperCase());
+        }
+
+        const sevenMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 6, 1);
+
+        // Fetch User Growth
+        const users = await ctx.prisma.user.findMany({
+            where: { createdAt: { gte: sevenMonthsAgo } },
+            select: { createdAt: true }
+        });
+
+        users.forEach(u => {
+            const m = u.createdAt.getMonth();
+            const y = u.createdAt.getFullYear();
+            // Calculate index
+            const monthsDiff = (now.getFullYear() - y) * 12 + (now.getMonth() - m);
+            const idx = 6 - monthsDiff;
+            if (idx >= 0 && idx <= 6) {
+                userCounts[idx]++;
+            }
+        });
+
+        // Normalize barHeights for UI (0-100%)
+        const maxUsers = Math.max(...userCounts, 1); // Avoid division by zero
+        const barHeights = userCounts.map(count => Math.round((count / maxUsers) * 100));
+
+        // Fetch Payments
+        const payments = await ctx.prisma.paystackTransaction.findMany({
+            where: { 
+                status: 'success',
+                createdAt: { gte: sevenMonthsAgo }
+            },
+            select: { type: true, createdAt: true, amount: true }
+        });
+
+        payments.forEach(p => {
+            const m = p.createdAt.getMonth();
+            const y = p.createdAt.getFullYear();
+            const monthsDiff = (now.getFullYear() - y) * 12 + (now.getMonth() - m);
+            const idx = 6 - monthsDiff;
+            
+            if (idx >= 0 && idx <= 6) {
+                if (p.type === 'workspace_unlock') workspaceUnlocks[idx]++;
+                else if (p.type === 'credit_purchase') creditPurchases[idx]++;
+                else if (p.type === 'bank_addon') bankAddons[idx]++;
+            }
+        });
+
         return {
             months,
-            barHeights,
+            barHeights, // For User Growth
+            payments: {
+                workspaceUnlocks,
+                creditPurchases,
+                bankAddons
+            }
         };
+    }),
+
+    getTopRegions: adminProcedure.query(async ({ ctx }) => {
+        const users = await ctx.prisma.user.findMany({
+            select: { stateOfResidence: true }
+        });
+
+        const total = users.length;
+        if (total === 0) return [];
+
+        const counts: Record<string, number> = {};
+        users.forEach(u => {
+            const state = u.stateOfResidence || "Unknown";
+            counts[state] = (counts[state] || 0) + 1;
+        });
+
+        // Convert to array and sort
+        const sorted = Object.entries(counts)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 3)
+            .map(([region, count]) => ({
+                region,
+                count,
+                pct: Math.round((count / total) * 100)
+            }));
+
+        return sorted;
     }),
 
     getActivityFeed: adminProcedure.query(async ({ ctx }) => {

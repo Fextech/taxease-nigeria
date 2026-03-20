@@ -24,7 +24,7 @@ export async function POST(request: Request) {
             const workspaces = await prisma.workspace.findMany({
                 where: { userId: session.user.id },
                 orderBy: { taxYear: 'desc' },
-                select: { id: true, taxYear: true, status: true, isUnlocked: true, statementCredits: true, allowedBanksCount: true, additionalDeductions: true, annualRentAmount: true },
+                select: { id: true, taxYear: true, status: true, isUnlocked: true, statementCredits: true, allowedBanksCount: true, additionalDeductions: true, annualRentAmount: true, unlockedMonths: true, unlockMethod: true },
             });
             const serializedWorkspaces = workspaces.map(w => ({
                 ...w,

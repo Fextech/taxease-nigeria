@@ -60,7 +60,17 @@ export default function StatementsPage() {
   // Unlock modal state
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [lockedMonthClicked, setLockedMonthClicked] = useState<number | null>(null);
+  const [unlockingWithCredit, setUnlockingWithCredit] = useState(false);
   const router = useRouter();
+
+  // Live pricing
+  const [pricingConfig, setPricingConfig] = useState<{ workspaceUnlockKobo: number; creditPriceKobo: number } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/billing').then(r => r.json()).then(data => {
+      if (data.workspaceUnlockKobo) setPricingConfig(data);
+    }).catch(() => {});
+  }, []);
 
   // Password modal state
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -380,8 +390,9 @@ export default function StatementsPage() {
                 const isProcessing = stmts.some((s) => s.parseStatus === "PROCESSING" || s.parseStatus === "UPLOADED");
                 const hasMultiple = stmts.length > 1;
                 const isActive = i === selectedMonth;
-                // Months 4-12 (index 3-11) are locked for free-tier users
-                const isLocked = !activeWorkspace?.isUnlocked && i >= 3;
+                // Months 4-12 (index 3-11) are locked for free-tier users unless individually unlocked
+                const perMonthUnlocked = (activeWorkspace?.unlockedMonths ?? []) as number[];
+                const isLocked = !activeWorkspace?.isUnlocked && i >= 3 && !perMonthUnlocked.includes(i + 1);
                 return (
                   <button
                     key={m.short}
@@ -581,7 +592,15 @@ export default function StatementsPage() {
             </div>
           )}
           {/* Unlock Modal */}
-          {showUnlockModal && (
+          {showUnlockModal && (() => {
+            const method = activeWorkspace?.unlockMethod;
+            const credits = activeWorkspace?.statementCredits ?? 0;
+            const perMonthUnlocked = (activeWorkspace?.unlockedMonths ?? []) as number[];
+            const remainingLockedCount = 9 - perMonthUnlocked.filter(m => m >= 4).length;
+            const creditPrice = pricingConfig ? (pricingConfig.creditPriceKobo / 100) : 250;
+            const fullPrice = pricingConfig ? (pricingConfig.workspaceUnlockKobo / 100) : 5000;
+
+            return (
             <div className="modal-overlay">
               <div className="modal-card">
                 <div className="modal-header">
@@ -590,20 +609,74 @@ export default function StatementsPage() {
                 </div>
                 <p className="modal-desc">This month is locked on the free tier. Choose how you&apos;d like to proceed:</p>
                 <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-                  <button
-                    className="modal-btn-confirm" style={{ width: "100%", padding: "14px", textAlign: "center" }}
-                    onClick={() => { setShowUnlockModal(false); router.push("/settings?tab=billing&action=unlock"); }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "middle", marginRight: 6 }}>star</span>
-                    Unlock All 12 Months — ₦5,000/year
-                  </button>
-                  <button
-                    className="modal-btn-cancel" style={{ width: "100%", padding: "14px", textAlign: "center" }}
-                    onClick={() => { setShowUnlockModal(false); router.push("/settings?tab=billing&action=credits"); }}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "middle", marginRight: 6 }}>payments</span>
-                    Buy Statement Credits
-                  </button>
+
+                  {/* Option 1: Full Year Unlock — hidden if user already chose CREDIT path */}
+                  {method !== 'CREDIT' && (
+                    <button
+                      className="modal-btn-confirm" style={{ width: "100%", padding: "14px", textAlign: "center" }}
+                      onClick={() => { setShowUnlockModal(false); router.push("/settings?tab=billing&action=unlock"); }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "middle", marginRight: 6 }}>star</span>
+                      Unlock remaining {remainingLockedCount} months &mdash; &#8358;{fullPrice.toLocaleString()}/year
+                    </button>
+                  )}
+
+                  {/* Option 2: Credit Unlock — hidden if user already chose FULL path */}
+                  {method !== 'FULL' && (
+                    <>
+                      <button
+                        className="modal-btn-confirm" style={{ width: "100%", padding: "14px", textAlign: "center", background: "var(--te-mint, #22c55e)" }}
+                        disabled={unlockingWithCredit}
+                        onClick={async () => {
+                          if (!activeWorkspaceId) return;
+                          if (credits <= 0) {
+                            setShowUnlockModal(false);
+                            setToast({ message: "You have no credits. Please purchase credits first.", type: "error" });
+                            setTimeout(() => setToast(null), 5000);
+                            router.push("/settings?tab=billing&action=credits");
+                            return;
+                          }
+                          setUnlockingWithCredit(true);
+                          try {
+                            const res = await fetch('/api/billing', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ action: 'unlockWithCredit', workspaceId: activeWorkspaceId, month: (lockedMonthClicked ?? 0) + 1 }),
+                            });
+                            const data = await res.json();
+                            if (!res.ok) {
+                              if (data.error === 'NO_CREDITS') {
+                                setShowUnlockModal(false);
+                                setToast({ message: "No credits available. Please purchase credits first.", type: "error" });
+                                setTimeout(() => setToast(null), 5000);
+                                router.push("/settings?tab=billing&action=credits");
+                              } else {
+                                setToast({ message: data.message || data.error || 'Failed to unlock', type: 'error' });
+                                setTimeout(() => setToast(null), 5000);
+                              }
+                              return;
+                            }
+                            setShowUnlockModal(false);
+                            if (lockedMonthClicked !== null) setSelectedMonth(lockedMonthClicked);
+                            setToast({ message: `\u2705 ${lockedMonthClicked !== null ? months[lockedMonthClicked].full : 'Month'} unlocked! ${data.creditsRemaining} credits remaining.`, type: 'success' });
+                            setTimeout(() => setToast(null), 5000);
+                            window.location.reload();
+                          } catch {
+                            setToast({ message: 'Failed to unlock month. Please try again.', type: 'error' });
+                            setTimeout(() => setToast(null), 5000);
+                          } finally {
+                            setUnlockingWithCredit(false);
+                          }
+                        }}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16, verticalAlign: "middle", marginRight: 6 }}>token</span>
+                        {unlockingWithCredit ? 'Unlocking...' : `Unlock with Credit (${credits} available)`}
+                      </button>
+                      <p style={{ fontSize: 11, color: "var(--te-text-muted)", margin: "0", textAlign: "center" }}>
+                        1 month = 1 credit &bull; &#8358;{creditPrice.toLocaleString()} per credit
+                      </p>
+                    </>
+                  )}
                 </div>
                 <button
                   className="modal-btn-cancel" style={{ width: "100%", marginTop: 8 }}
@@ -613,7 +686,7 @@ export default function StatementsPage() {
                 </button>
               </div>
             </div>
-          )}
+          );})()}
 
         </div>
 

@@ -7,10 +7,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense } from "react";
 
 const NIGERIAN_STATES = [
-  "Abia","Adamawa","Akwa Ibom","Anambra","Bauchi","Bayelsa","Benue","Borno",
-  "Cross River","Delta","Ebonyi","Edo","Ekiti","Enugu","Gombe","Imo","Jigawa",
-  "Kaduna","Kano","Katsina","Kebbi","Kogi","Kwara","Lagos","Nasarawa","Niger",
-  "Ogun","Ondo","Osun","Oyo","Plateau","Rivers","Sokoto","Taraba","Yobe","Zamfara",
+  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+  "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "Gombe", "Imo", "Jigawa",
+  "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos", "Nasarawa", "Niger",
+  "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto", "Taraba", "Yobe", "Zamfara",
   "FCT (Abuja)",
 ];
 
@@ -70,7 +70,23 @@ function SettingsContent() {
   // Billing state
   const [billingLoading, setBillingLoading] = useState(false);
   const [billingStatus, setBillingStatus] = useState({ type: "", message: "" });
-  const [buyCreditAmount, setBuyCreditAmount] = useState<number>(10);
+  const [buyCreditAmount, setBuyCreditAmount] = useState<number>(2);
+  const [pricingConfig, setPricingConfig] = useState<{
+    workspaceUnlockKobo: number;
+    creditPriceKobo: number;
+    bankAccountAddonKobo: number;
+    standardCredits: number;
+  } | null>(null);
+
+  // Load pricing
+  useEffect(() => {
+    fetch("/api/billing")
+      .then(res => res.json())
+      .then(data => {
+        if (!data.error) setPricingConfig(data);
+      })
+      .catch(() => { });
+  }, []);
 
   // Handle Paystack callback redirect
   useEffect(() => {
@@ -79,25 +95,25 @@ function SettingsContent() {
       setBillingStatus({ type: "info", message: "Verifying your payment..." });
       setActiveTab("billing");
       setBillingLoading(true);
-      
+
       fetch("/api/billing", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action: "verifyPayment", reference }),
       })
-      .then(async (res) => {
-        const data = await res.json();
-        if (res.ok) {
-          setBillingStatus({ type: "success", message: "Payment verified successfully!" });
-          await refreshWorkspace();
-          // Clear query params
-          router.replace("/settings");
-        } else {
-          setBillingStatus({ type: "error", message: data.error || "Payment verification failed." });
-        }
-      })
-      .catch(() => setBillingStatus({ type: "error", message: "Payment verification failed." }))
-      .finally(() => setBillingLoading(false));
+        .then(async (res) => {
+          const data = await res.json();
+          if (res.ok) {
+            setBillingStatus({ type: "success", message: "Payment verified successfully!" });
+            await refreshWorkspace();
+            // Clear query params
+            router.replace("/settings");
+          } else {
+            setBillingStatus({ type: "error", message: data.error || "Payment verification failed." });
+          }
+        })
+        .catch(() => setBillingStatus({ type: "error", message: "Payment verification failed." }))
+        .finally(() => setBillingLoading(false));
     }
   }, [searchParams, activeWorkspace, router, refreshWorkspace]);
 
@@ -279,7 +295,7 @@ function SettingsContent() {
     setCpError(""); setCpSuccess("");
     if (cpNew !== cpConfirm) { setCpError("New passwords do not match."); return; }
     if (cpNew.length < 8) { setCpError("New password must be at least 8 characters."); return; }
-    
+
     setCpLoading(true);
     try {
       const res = await fetch("/api/settings", {
@@ -293,7 +309,7 @@ function SettingsContent() {
       });
       const data = await res.json();
       if (!res.ok) { setCpError(data.error || "Failed to change password"); return; }
-      
+
       setCpSuccess("Password changed successfully!");
       setCpCurrent(""); setCpNew(""); setCpConfirm("");
       setTimeout(() => setCpSuccess(""), 4000);
@@ -653,69 +669,86 @@ function SettingsContent() {
                     </span>
                   </div>
                   <div className="billing-item-body">
-                    {!activeWorkspace.isUnlocked && (
+                    {!activeWorkspace.isUnlocked && !activeWorkspace.unlockMethod && (
                       <p className="billing-text">You are currently on the free tier. Only months 1-3 (Jan-Mar) are unlocked for this workspace.</p>
+                    )}
+                    {!activeWorkspace.isUnlocked && activeWorkspace.unlockMethod === 'CREDIT' && (
+                      <p className="billing-text">You are unlocking months individually with credits. {((activeWorkspace.unlockedMonths as number[] | undefined) ?? []).length} of 9 extra months unlocked so far.</p>
                     )}
                     {activeWorkspace.isUnlocked && (
                       <p className="billing-text">You have full access to all 12 months for this workspace.</p>
                     )}
                   </div>
-                  {!activeWorkspace.isUnlocked && (
+                  {!activeWorkspace.isUnlocked && activeWorkspace.unlockMethod !== 'CREDIT' && (
                     <div className="billing-item-footer">
-                      <button className="settings-btn-primary" style={{ width: "100%" }} onClick={handleUnlock} disabled={billingLoading}>
-                        {billingLoading ? "Processing..." : "Unlock Full Year — ₦5,000"}
+                      <button className="settings-btn-primary" style={{ width: "100%" }} onClick={handleUnlock} disabled={billingLoading || !pricingConfig}>
+                        {billingLoading ? "Processing..." : `Unlock Full Year — ₦${(pricingConfig ? pricingConfig.workspaceUnlockKobo / 100 : 5000).toLocaleString()}`}
                       </button>
                     </div>
                   )}
                 </div>
 
-                {/* Credits Card */}
-                <div className="billing-item-card">
-                  <div className="billing-item-header">
-                    <div>
-                      <h3 className="billing-item-title">Statement Credits</h3>
-                      <p className="billing-item-desc">Used for processing bank statements</p>
+                {/* Credits Card — hidden if user chose FULL year unlock */}
+                {activeWorkspace.unlockMethod !== 'FULL' && (() => {
+                  const alreadyUnlocked = ((activeWorkspace.unlockedMonths as number[] | undefined) ?? []).length;
+                  const currentCredits = activeWorkspace.statementCredits ?? 0;
+                  const maxPurchasable = Math.max(0, 9 - alreadyUnlocked - currentCredits);
+
+                  return (
+                  <div className="billing-item-card">
+                    <div className="billing-item-header">
+                      <div>
+                        <h3 className="billing-item-title">Unlock Credits</h3>
+                        <p className="billing-item-desc">Used for unlocking individual months</p>
+                      </div>
+                      <div className="billing-credit-badge">
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>local_activity</span>
+                        <strong>{currentCredits}</strong> left
+                      </div>
                     </div>
-                    <div className="billing-credit-badge">
-                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>local_activity</span>
-                      <strong>{activeWorkspace.statementCredits ?? 0}</strong> left
+                    <div className="billing-item-body">
+                      <p className="billing-text" style={{ marginBottom: 16 }}>Each credit unlocks 1 additional month for statement uploads. You can purchase up to {maxPurchasable} more credit{maxPurchasable !== 1 ? 's' : ''}.</p>
+                      {maxPurchasable > 0 ? (
+                      <div className="billing-credit-selector">
+                        <button
+                          className="credit-adjust-btn"
+                          onClick={() => setBuyCreditAmount(Math.max(1, buyCreditAmount - 1))}
+                          disabled={billingLoading || buyCreditAmount <= 1}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>remove</span>
+                        </button>
+                        <input
+                          type="number"
+                          className="settings-input credit-input"
+                          value={buyCreditAmount}
+                          onChange={(e) => setBuyCreditAmount(Math.max(1, Math.min(maxPurchasable, parseInt(e.target.value) || 1)))}
+                          min={1}
+                          max={maxPurchasable}
+                          step={1}
+                          disabled={billingLoading}
+                        />
+                        <button
+                          className="credit-adjust-btn"
+                          onClick={() => setBuyCreditAmount(Math.min(maxPurchasable, buyCreditAmount + 1))}
+                          disabled={billingLoading || buyCreditAmount >= maxPurchasable}
+                        >
+                          <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                        </button>
+                      </div>
+                      ) : (
+                        <p className="billing-text" style={{ color: "var(--te-mint)", fontWeight: 600 }}>All 9 months are covered (unlocked + credits on hand).</p>
+                      )}
                     </div>
-                  </div>
-                  <div className="billing-item-body">
-                    <p className="billing-text" style={{ marginBottom: 16 }}>Each unique statement upload consumes 1 credit. Re-uploading the same statement is free.</p>
-                    <div className="billing-credit-selector">
-                      <button 
-                        className="credit-adjust-btn" 
-                        onClick={() => setBuyCreditAmount(Math.max(1, buyCreditAmount - 1))}
-                        disabled={billingLoading || buyCreditAmount <= 1}
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>remove</span>
+                    {maxPurchasable > 0 && (
+                    <div className="billing-item-footer">
+                      <button className="settings-btn-ghost" style={{ width: "100%" }} onClick={handleBuyCredits} disabled={billingLoading || !pricingConfig}>
+                        Buy {buyCreditAmount} Credits — ₦{pricingConfig ? (buyCreditAmount * (pricingConfig.creditPriceKobo / 100)).toLocaleString() : (buyCreditAmount * 250).toLocaleString()}
                       </button>
-                      <input 
-                        type="number" 
-                        className="settings-input credit-input" 
-                        value={buyCreditAmount} 
-                        onChange={(e) => setBuyCreditAmount(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
-                        min={1}
-                        max={100}
-                        step={1}
-                        disabled={billingLoading}
-                      />
-                      <button 
-                        className="credit-adjust-btn" 
-                        onClick={() => setBuyCreditAmount(Math.min(100, buyCreditAmount + 1))}
-                        disabled={billingLoading || buyCreditAmount >= 100}
-                      >
-                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
-                      </button>
                     </div>
+                    )}
                   </div>
-                  <div className="billing-item-footer">
-                    <button className="settings-btn-ghost" style={{ width: "100%" }} onClick={handleBuyCredits} disabled={billingLoading}>
-                      Buy {buyCreditAmount} Credits — ₦{(buyCreditAmount * 250).toLocaleString()}
-                    </button>
-                  </div>
-                </div>
+                  );
+                })()}
 
                 {/* Banks Card */}
                 <div className="billing-item-card">
@@ -733,8 +766,8 @@ function SettingsContent() {
                     <p className="billing-text">Need to file statements from multiple banks? Add more bank capacity to this workspace.</p>
                   </div>
                   <div className="billing-item-footer">
-                    <button className="settings-btn-ghost" style={{ width: "100%" }} onClick={handleAddBank} disabled={billingLoading}>
-                      Add Bank Account — ₦3,000
+                    <button className="settings-btn-ghost" style={{ width: "100%" }} onClick={handleAddBank} disabled={billingLoading || !pricingConfig}>
+                      Add Bank Account — ₦{pricingConfig ? (pricingConfig.bankAccountAddonKobo / 100).toLocaleString() : "3,000"}
                     </button>
                   </div>
                 </div>

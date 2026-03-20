@@ -3,19 +3,20 @@
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { toast } from "sonner";
 
 const REPORT_TYPES = [
     { id: 'USER_GROWTH', label: 'User Growth & Retention', icon: 'trending_up' },
-    { id: 'SUBSCRIPTION_MRR', label: 'Subscription & MRR', icon: 'payments' },
+    { id: 'REVENUE_PAYMENTS', label: 'Revenue & Payments', icon: 'payments' },
     { id: 'PROCESSING_VOLUME', label: 'Statement Processing Volume', icon: 'receipt_long' },
-    { id: 'TAX_YEAR_ACTIVITY', label: 'Tax Year Activity', icon: 'calendar_month' },
     { id: 'SUPPORT_PERFORMANCE', label: 'Support SLA & Performance', icon: 'support_agent' },
     { id: 'BROADCAST_ENGAGEMENT', label: 'Broadcast Engagement', icon: 'campaign' },
-    { id: 'PLATFORM_HEALTH', label: 'Platform & API Health', icon: 'monitor_heart' }
 ] as const;
 
+type ReportId = typeof REPORT_TYPES[number]['id'];
+
 export default function AnalyticsPage() {
-    const [selectedReport, setSelectedReport] = useState<typeof REPORT_TYPES[number]['id']>('USER_GROWTH');
+    const [selectedReport, setSelectedReport] = useState<ReportId>('USER_GROWTH');
     
     // Default to last 30 days
     const defaultEnd = new Date();
@@ -30,8 +31,6 @@ export default function AnalyticsPage() {
     const [isScheduling, setIsScheduling] = useState(false);
     const [scheduleEmails, setScheduleEmails] = useState("");
     const [scheduleFreq, setScheduleFreq] = useState<"DAILY" | "WEEKLY" | "MONTHLY">("WEEKLY");
-
-    const utils = trpc.useUtils();
 
     const { data: reportData, isLoading } = trpc.admin.analytics.getReportData.useQuery({
         reportType: selectedReport,
@@ -54,28 +53,30 @@ export default function AnalyticsPage() {
             a.href = res.dataUrl;
             a.download = res.filename;
             a.click();
+            toast.success(`Report exported as ${format.toUpperCase()}`);
         } catch (e) {
-            alert("Export failed");
+            toast.error("Export failed");
         }
     };
 
     const handleSchedule = async () => {
-        if (!scheduleEmails) return alert("Please enter at least one email");
+        if (!scheduleEmails) return toast.error("Please enter at least one email");
         try {
             await scheduleMutation.mutateAsync({
                 reportType: selectedReport,
                 frequency: scheduleFreq,
                 recipients: scheduleEmails.split(',').map(e => e.trim()),
             });
-            alert("Report scheduled successfully!");
+            toast.success("Report schedule saved to audit log");
             setIsScheduling(false);
             setScheduleEmails("");
         } catch (e) {
-            alert("Scheduling failed: Invalid email format?");
+            toast.error("Scheduling failed — check email format");
         }
     };
 
     const activeReportObj = REPORT_TYPES.find(r => r.id === selectedReport);
+    const labels = reportData?.labels ?? { primary: 'Value', secondary: 'Secondary' };
 
     return (
         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -83,7 +84,7 @@ export default function AnalyticsPage() {
             <div>
                 <h1 style={{ fontSize: 24, fontWeight: 800, color: "var(--admin-text)", margin: "0 0 8px" }}>Analytics & Reports</h1>
                 <p style={{ color: "var(--admin-text-muted)", margin: 0, fontSize: 14 }}>
-                    Generate, visualize, and distribute system-wide reports and metrics.
+                    Generate, visualize, and export system-wide reports from live data.
                 </p>
             </div>
 
@@ -148,8 +149,6 @@ export default function AnalyticsPage() {
                                 >
                                     <option value="" disabled selected>{exportMutation.isPending ? "Exporting..." : "Export Report"}</option>
                                     <option value="csv">Download as CSV</option>
-                                    <option value="excel">Download as Excel</option>
-                                    <option value="pdf">Download as PDF</option>
                                 </select>
                                 <span className="material-symbols-outlined" style={{ position: "absolute", right: 10, top: 10, pointerEvents: "none" }}>download</span>
                             </div>
@@ -162,7 +161,7 @@ export default function AnalyticsPage() {
                             <div style={{ display: "flex", gap: 16, alignItems: "flex-end" }}>
                                 <div style={{ flex: 1 }}>
                                     <label style={{ display: "block", fontSize: 12, marginBottom: 8, color: "var(--admin-text-muted)" }}>Recipient Emails (comma separated)</label>
-                                    <input type="text" className="admin-input" placeholder="admin@taxease.ng, ceo@taxease.ng" value={scheduleEmails} onChange={e => setScheduleEmails(e.target.value)} />
+                                    <input type="text" className="admin-input" placeholder="admin@banklens.ng, ceo@banklens.ng" value={scheduleEmails} onChange={e => setScheduleEmails(e.target.value)} />
                                 </div>
                                 <div style={{ width: 150 }}>
                                     <label style={{ display: "block", fontSize: 12, marginBottom: 8, color: "var(--admin-text-muted)" }}>Frequency</label>
@@ -209,7 +208,7 @@ export default function AnalyticsPage() {
                                     <div style={{ flex: 1, padding: 20, background: "rgba(255,255,255,0.02)", borderRadius: 8 }}>
                                         <span style={{ color: "var(--admin-text-muted)", fontSize: 13 }}>Period Trend</span>
                                         <div style={{ fontSize: 32, fontWeight: 700, color: "var(--admin-success)", marginTop: 8 }}>
-                                            {reportData.summary.trend} <span className="material-symbols-outlined" style={{ fontSize: 24 }}>arrow_upward</span>
+                                            {reportData.summary.trend}
                                         </div>
                                     </div>
                                 </div>
@@ -240,8 +239,8 @@ export default function AnalyticsPage() {
                                                 contentStyle={{ backgroundColor: "#0a1628", borderColor: "rgba(0, 240, 255, 0.2)", borderRadius: 8, color: "#fff" }}
                                                 itemStyle={{ color: "#fff" }}
                                             />
-                                            <Area type="monotone" dataKey="value" stroke="var(--admin-cyan)" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" name="Primary Metric" />
-                                            <Area type="monotone" dataKey="secondary" stroke="rgba(255,255,255,0.5)" strokeWidth={2} fillOpacity={1} fill="url(#colorSec)" name="Secondary Metric" />
+                                            <Area type="monotone" dataKey="value" stroke="var(--admin-cyan)" strokeWidth={3} fillOpacity={1} fill="url(#colorValue)" name={labels.primary} />
+                                            <Area type="monotone" dataKey="secondary" stroke="rgba(255,255,255,0.5)" strokeWidth={2} fillOpacity={1} fill="url(#colorSec)" name={labels.secondary} />
                                         </AreaChart>
                                     </ResponsiveContainer>
                                 </div>
@@ -253,20 +252,16 @@ export default function AnalyticsPage() {
                                         <thead>
                                             <tr>
                                                 <th>Date</th>
-                                                <th>Primary Value</th>
-                                                <th>Secondary Value</th>
-                                                <th>Status</th>
+                                                <th>{labels.primary}</th>
+                                                <th>{labels.secondary}</th>
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            {reportData.points.slice(0, 5).map((p: any, i: any) => (
+                                            {reportData.points.slice(0, 7).map((p: any, i: any) => (
                                                 <tr key={i}>
                                                     <td>{new Date(p.date).toLocaleDateString()}</td>
                                                     <td style={{ fontWeight: 600, color: "var(--admin-text)" }}>{p.value.toLocaleString()}</td>
                                                     <td>{p.secondary.toLocaleString()}</td>
-                                                    <td>
-                                                        <span className="admin-badge admin-badge--dim">Recorded</span>
-                                                    </td>
                                                 </tr>
                                             ))}
                                         </tbody>

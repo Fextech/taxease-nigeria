@@ -4,6 +4,9 @@ import { signIn } from "next-auth/react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Suspense, useState } from "react";
 import Image from "next/image";
+import BackgroundLayer from "@/components/BackgroundLayer";
+import MarketingHeader from "@/components/MarketingHeader";
+import MarketingFooter from "@/components/MarketingFooter";
 
 function SignInContent() {
   const searchParams = useSearchParams();
@@ -52,8 +55,14 @@ function SignInContent() {
           : "");
 
   return (
-    <div className="signin-page">
-      <div className="signin-card">
+    <div className="min-h-screen relative flex flex-col font-sans overflow-x-hidden text-[#f1f5f7]">
+      <BackgroundLayer />
+      <MarketingHeader />
+
+      <main className="flex-1 flex items-center justify-center p-6 my-8">
+        <div className="signin-card w-full max-w-md bg-[#131F20] rounded-2xl p-8 border border-white/5 shadow-2xl relative overflow-hidden">
+          {/* subtle top accent */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-teal-500 via-primary to-orange-400 opacity-80" />
         {/* Logo & Branding */}
         <div className="signin-header text-center flex flex-col items-center">
           <div className="bg-white p-4 rounded-2xl shadow-sm mb-6 flex items-center justify-center" style={{ width: "200px", height: "60px" }}>
@@ -166,9 +175,9 @@ function SignInContent() {
           <a href="/privacy" className="signin-link">Privacy Policy</a>.
         </p>
       </div>
+      </main>
 
-      {/* Background Decoration */}
-      <div className="signin-bg-pattern" />
+      <MarketingFooter />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import Sidebar from "@/components/dashboard/Sidebar";
 import Header from "@/components/dashboard/Header";
 import { WorkspaceProvider } from "@/components/dashboard/WorkspaceContext";
+import HowToGuideModal from "@/components/HowToGuideModal";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -18,6 +19,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <WorkspaceProvider>
+      <HowToGuideModal />
       <div className="dash-layout">
         <Sidebar collapsed={collapsed} onToggle={() => setCollapsed((v) => !v)} />
         <div className={`dash-main ${collapsed ? "dash-main--collapsed" : ""}`}>
@@ -25,7 +27,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <main className="dash-content">{children}</main>
         </div>
       </div>
-
     </WorkspaceProvider>
   );
 }

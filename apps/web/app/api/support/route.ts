@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
+import { prisma } from '@/lib/prisma';
 
 export async function POST(request: Request) {
     const session = await auth();
@@ -15,14 +16,23 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
         }
 
-        // Mock implementation for now.
-        // In a real scenario, we would save this to the DB, push to Zendesk/Intercom, 
-        // or trigger an email via Resend to the support alias.
-        console.log(`[Support Ticket] From: ${session.user.email} | Type: ${category} | Subject: ${subject}`);
-        console.log(`[Message details]: ${message}`);
+        // Format category to match Prisma enum (e.g. "Parsing Error" -> "PARSING_ERROR")
+        const ticketCategory = category.toUpperCase().replace(/ /g, '_');
 
-        // Simulate network delay
-        await new Promise(resolve => setTimeout(resolve, 800));
+        await prisma.supportTicket.create({
+            data: {
+                userId: session.user.id,
+                subject,
+                category: ticketCategory,
+                messages: {
+                    create: {
+                        senderId: session.user.id,
+                        senderType: 'user',
+                        body: message,
+                    }
+                }
+            }
+        });
 
         return NextResponse.json({ success: true, message: "Ticket created successfully" });
     } catch (error) {

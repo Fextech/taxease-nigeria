@@ -1,17 +1,85 @@
 "use client";
 
-import { useState, use } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
+import Link from "next/link";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Placeholder from "@tiptap/extension-placeholder";
 
-export default function SupportTicketDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const resolvedParams = use(params);
+// Tiptap Editor UI Component
+const RichTextEditor = ({ value, onChange, placeholder, isInternal }: { 
+  value: string; 
+  onChange: (html: string) => void; 
+  placeholder: string;
+  isInternal: boolean;
+}) => {
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      StarterKit,
+      Placeholder.configure({ placeholder }),
+    ],
+    content: value,
+    onUpdate: ({ editor }) => {
+      onChange(editor.getHTML());
+    },
+    editorProps: {
+      attributes: {
+        class: `prose prose-sm focus:outline-none min-h-[120px] p-4 ${isInternal ? "bg-[rgba(255,171,0,0.05)]" : "var(--admin-bg)"}`
+      }
+    }
+  });
+
+  // Sync state if it was cleared from parent (e.g. after sending reply)
+  useEffect(() => {
+    if (editor && value === "" && editor.getHTML() !== "<p></p>") {
+      editor.commands.setContent("");
+    }
+  }, [value, editor]);
+
+  if (!editor) return null;
+
+  return (
+    <div style={{ border: `1px solid ${isInternal ? "rgba(255, 171, 0, 0.3)" : "var(--admin-border)"}`, borderRadius: 8, overflow: "hidden", marginBottom: 16 }}>
+      {/* Editor Toolbar */}
+      <div style={{ display: "flex", gap: 4, padding: "8px 12px", borderBottom: `1px solid ${isInternal ? "rgba(255, 171, 0, 0.3)" : "var(--admin-border)"}`, background: "var(--admin-surface-hover)" }}>
+        <button type="button" onClick={() => editor.chain().focus().toggleBold().run()} 
+          style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, background: editor.isActive('bold') ? "var(--admin-border)" : "transparent" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, color: editor.isActive('bold') ? "var(--admin-text)" : "var(--admin-text-muted)" }}>format_bold</span>
+        </button>
+        <button type="button" onClick={() => editor.chain().focus().toggleItalic().run()} 
+          style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, background: editor.isActive('italic') ? "var(--admin-border)" : "transparent" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, color: editor.isActive('italic') ? "var(--admin-text)" : "var(--admin-text-muted)" }}>format_italic</span>
+        </button>
+        <div style={{ width: 1, background: "var(--admin-border)", margin: "0 4px" }} />
+        <button type="button" onClick={() => editor.chain().focus().toggleBulletList().run()} 
+          style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, background: editor.isActive('bulletList') ? "var(--admin-border)" : "transparent" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, color: editor.isActive('bulletList') ? "var(--admin-text)" : "var(--admin-text-muted)" }}>format_list_bulleted</span>
+        </button>
+        <button type="button" onClick={() => editor.chain().focus().toggleOrderedList().run()} 
+          style={{ width: 28, height: 28, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, background: editor.isActive('orderedList') ? "var(--admin-border)" : "transparent" }}>
+          <span className="material-symbols-outlined" style={{ fontSize: 16, color: editor.isActive('orderedList') ? "var(--admin-text)" : "var(--admin-text-muted)" }}>format_list_numbered</span>
+        </button>
+      </div>
+      {/* Editor Content Area */}
+      <div style={{ background: isInternal ? "rgba(255, 171, 0, 0.05)" : "var(--admin-bg)" }}>
+        <EditorContent editor={editor} />
+      </div>
+    </div>
+  );
+};
+
+export default function SupportTicketDetailPage() {
+  const params = useParams();
+  const ticketId = params.id as string;
   const router = useRouter();
 
   const [replyBody, setReplyBody] = useState("");
   const [isInternal, setIsInternal] = useState(false);
 
-  const { data, isLoading, refetch } = trpc.admin.support.getTicketDetails.useQuery({ ticketId: resolvedParams.id });
+  const { data, isLoading, refetch } = trpc.admin.support.getTicketDetails.useQuery({ ticketId });
   const { mutateAsync: replyMutation, isPending: isReplying } = trpc.admin.support.replyToTicket.useMutation();
   const { mutateAsync: statusMutation, isPending: isStatusUpdating } = trpc.admin.support.updateTicketStatus.useMutation();
 
@@ -102,9 +170,7 @@ export default function SupportTicketDetailPage({ params }: { params: Promise<{ 
                         {new Date(msg.createdAt).toLocaleString()}
                       </span>
                     </div>
-                    <div style={{ fontSize: 14, color: "var(--admin-text)", whiteSpace: "pre-wrap", lineHeight: 1.5 }}>
-                      {msg.body}
-                    </div>
+                    <div className="prose prose-sm" style={{ fontSize: 14, color: "var(--admin-text)", whiteSpace: "pre-wrap", lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: msg.body }} />
                   </div>
                 </div>
               );
@@ -129,12 +195,11 @@ export default function SupportTicketDetailPage({ params }: { params: Promise<{ 
               Internal Note (Hidden)
             </button>
           </div>
-          <textarea
-            className="admin-input"
-            style={{ minHeight: 120, resize: "vertical", marginBottom: 16, background: isInternal ? "rgba(255, 171, 0, 0.05)" : "var(--admin-bg)" }}
-            placeholder={isInternal ? "Add an internal note for other agents..." : "Type your reply to the customer..."}
-            value={replyBody}
-            onChange={e => setReplyBody(e.target.value)}
+          <RichTextEditor 
+            value={replyBody} 
+            onChange={setReplyBody} 
+            isInternal={isInternal}
+            placeholder={isInternal ? "Add an internal note for other agents..." : "Type your reply to the customer..."} 
           />
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <button className="admin-btn admin-btn--ghost admin-btn--sm">
@@ -229,4 +294,3 @@ export default function SupportTicketDetailPage({ params }: { params: Promise<{ 
     </div>
   );
 }
-import Link from 'next/link';

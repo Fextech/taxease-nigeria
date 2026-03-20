@@ -110,10 +110,11 @@ export default function UsersPage() {
     columnHelper.accessor("plan", {
       header: "Subscription",
       cell: (info) => {
-        const plan = info.getValue();
+        const hasUnlocked = (info.row.original._count?.workspaces || 0) > 0;
+        const dynamicPlan = hasUnlocked ? "PRO" : "FREE";
         return (
-          <span className={`admin-badge ${plan === "PRO" ? "admin-badge--pro" : "admin-badge--free"}`}>
-            {plan}
+          <span className={`admin-badge ${dynamicPlan === "PRO" ? "admin-badge--pro" : "admin-badge--free"}`}>
+            {dynamicPlan}
           </span>
         );
       },

@@ -8,6 +8,21 @@ import {
     STANDARD_STATEMENT_CREDITS,
 } from '@banklens/shared';
 
+async function getLivePricing() {
+    const keys = ['workspaceUnlockKobo', 'creditPriceKobo', 'bankAccountAddonKobo', 'standardCredits'];
+    const configs = await prisma.appConfig.findMany({
+        where: { key: { in: keys } },
+    });
+    const configMap = new Map(configs.map((c) => [c.key, c.value]));
+
+    return {
+        workspaceUnlockKobo: BigInt(configMap.get('workspaceUnlockKobo') ?? WORKSPACE_UNLOCK_PRICE.priceKobo),
+        creditPriceKobo: BigInt(configMap.get('creditPriceKobo') ?? CREDIT_PACKAGES[0].perCreditKobo),
+        bankAccountAddonKobo: BigInt(configMap.get('bankAccountAddonKobo') ?? ADDITIONAL_BANK_PRICE.priceKobo),
+        standardCredits: Number(configMap.get('standardCredits') ?? STANDARD_STATEMENT_CREDITS),
+    };
+}
+
 async function initializePaystackTransaction(opts: {
     email: string;
     amountKobo: bigint;
@@ -77,7 +92,8 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace is already unlocked.' }, { status: 400 });
             }
 
-            const totalKobo = WORKSPACE_UNLOCK_PRICE.priceKobo;
+            const pricing = await getLivePricing();
+            const totalKobo = pricing.workspaceUnlockKobo;
             const reference = generateReference('unlock');
 
             await prisma.paystackTransaction.create({
@@ -111,8 +127,8 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found.' }, { status: 404 });
             }
 
-            const basePackage = CREDIT_PACKAGES[0];
-            const totalKobo = basePackage.perCreditKobo * BigInt(credits);
+            const pricing = await getLivePricing();
+            const totalKobo = pricing.creditPriceKobo * BigInt(credits);
             const reference = generateReference('credits');
 
             await prisma.paystackTransaction.create({
@@ -145,13 +161,14 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found.' }, { status: 404 });
             }
 
+            const pricing = await getLivePricing();
             const reference = generateReference('bank');
 
             await prisma.paystackTransaction.create({
                 data: {
                     userId,
                     reference,
-                    amount: ADDITIONAL_BANK_PRICE.priceKobo,
+                    amount: pricing.bankAccountAddonKobo,
                     status: 'pending',
                     type: 'bank_addon',
                     metadata: { workspaceId },
@@ -160,7 +177,7 @@ export async function POST(request: Request) {
 
             const paystack = await initializePaystackTransaction({
                 email,
-                amountKobo: ADDITIONAL_BANK_PRICE.priceKobo,
+                amountKobo: pricing.bankAccountAddonKobo,
                 reference,
                 callbackUrl: data.callbackUrl,
                 metadata: { type: 'bank_addon', workspaceId },
@@ -212,7 +229,7 @@ export async function POST(request: Request) {
                     where: { id: meta.workspaceId as string },
                     data: { 
                         isUnlocked: true, 
-                        statementCredits: { increment: STANDARD_STATEMENT_CREDITS } 
+                        unlockMethod: 'FULL',
                     },
                 });
             } else if (txn.type === 'credit_purchase') {
@@ -239,8 +256,61 @@ export async function POST(request: Request) {
             return NextResponse.json({ status: 'success', type: txn.type });
         }
 
+        if (action === 'unlockWithCredit') {
+            const workspaceId = data.workspaceId;
+            const month = data.month as number; // 1-12
+
+            if (!month || month < 1 || month > 12) {
+                return NextResponse.json({ error: 'Invalid month.' }, { status: 400 });
+            }
+
+            const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+
+            if (!workspace || workspace.userId !== userId) {
+                return NextResponse.json({ error: 'Workspace not found.' }, { status: 404 });
+            }
+
+            if (workspace.statementCredits <= 0) {
+                return NextResponse.json({ error: 'NO_CREDITS', message: 'You have no credits remaining. Please purchase credits first.' }, { status: 400 });
+            }
+
+            // Build updated unlockedMonths array
+            const currentUnlocked = (workspace.unlockedMonths as number[] | null) ?? [];
+            if (currentUnlocked.includes(month)) {
+                return NextResponse.json({ error: 'This month is already unlocked.' }, { status: 400 });
+            }
+
+            const updatedMonths = [...currentUnlocked, month];
+
+            // Deduct 1 credit, persist month, set method
+            await prisma.workspace.update({
+                where: { id: workspaceId },
+                data: {
+                    statementCredits: { decrement: 1 },
+                    unlockedMonths: updatedMonths,
+                    unlockMethod: 'CREDIT',
+                },
+            });
+
+            return NextResponse.json({ status: 'success', month, creditsRemaining: workspace.statementCredits - 1, unlockedMonths: updatedMonths });
+        }
+
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
     } catch (error: unknown) {
         return NextResponse.json({ error: (error as Error).message || 'Internal server error' }, { status: 500 });
+    }
+}
+
+export async function GET() {
+    try {
+        const pricing = await getLivePricing();
+        return NextResponse.json({
+            workspaceUnlockKobo: Number(pricing.workspaceUnlockKobo),
+            creditPriceKobo: Number(pricing.creditPriceKobo),
+            bankAccountAddonKobo: Number(pricing.bankAccountAddonKobo),
+            standardCredits: pricing.standardCredits,
+        });
+    } catch (e: unknown) {
+        return NextResponse.json({ error: 'Failed to fetch config' }, { status: 500 });
     }
 }

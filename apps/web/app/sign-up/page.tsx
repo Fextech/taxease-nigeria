@@ -1,9 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import BackgroundLayer from "@/components/BackgroundLayer";
+import MarketingHeader from "@/components/MarketingHeader";
+import MarketingFooter from "@/components/MarketingFooter";
 
 export default function SignUpPage() {
   const router = useRouter();
@@ -16,6 +19,16 @@ export default function SignUpPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+
+  // Check maintenance mode on mount
+  useEffect(() => {
+    fetch("/api/maintenance")
+      .then(res => res.json())
+      .then(data => {
+        if (data.enabled) router.replace("/maintenance");
+      })
+      .catch(() => {});
+  }, [router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -51,8 +64,14 @@ export default function SignUpPage() {
   };
 
   return (
-    <div className="signup-page">
-      <div className="signup-card">
+    <div className="min-h-screen relative flex flex-col font-sans overflow-x-hidden text-[#f1f5f7]">
+      <BackgroundLayer />
+      <MarketingHeader />
+
+      <main className="flex-1 flex items-center justify-center p-6 my-8">
+        <div className="signup-card w-full max-w-md bg-[#131F20] rounded-2xl p-8 border border-white/5 shadow-2xl relative overflow-hidden">
+          {/* subtle top accent */}
+          <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-teal-500 via-primary to-orange-400 opacity-80" />
         {/* Logo & Branding */}
         <div className="signup-header text-center flex flex-col items-center">
           <div className="bg-white p-4 rounded-2xl shadow-sm mb-6 flex items-center justify-center" style={{ width: "200px", height: "60px" }}>
@@ -196,7 +215,9 @@ export default function SignUpPage() {
           <Link href="/privacy" className="signup-link hover:text-white transition-colors underline underline-offset-2">Privacy Policy</Link>.
         </p>
       </div>
+      </main>
 
+      <MarketingFooter />
     </div>
   );
 }

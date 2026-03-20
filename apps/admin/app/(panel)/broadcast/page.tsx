@@ -30,48 +30,57 @@ export default function BroadcastPage() {
               <th>Segment</th>
               <th>Channel</th>
               <th>Recipients</th>
-              <th>Delivered / Failed / Opened</th>
+              <th>Delivered / Failed</th>
               <th>Status</th>
-              <th>Sent</th>
+              <th>Date</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: "center", padding: 40, color: "var(--admin-text-muted)" }}>
+                <td colSpan={8} style={{ textAlign: "center", padding: 40, color: "var(--admin-text-muted)" }}>
                   Loading broadcasts...
                 </td>
               </tr>
             ) : data?.items.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ textAlign: "center", padding: 40, color: "var(--admin-text-muted)" }}>
+                <td colSpan={8} style={{ textAlign: "center", padding: 40, color: "var(--admin-text-muted)" }}>
                   <span className="material-symbols-outlined" style={{ fontSize: 36, opacity: 0.3, display: "block", marginBottom: 8 }}>campaign</span>
                   No broadcasts yet. Create your first broadcast to get started.
                 </td>
               </tr>
             ) : (
               data?.items.map((broadcast: any) => (
-                <tr key={broadcast.id}>
+                <tr key={broadcast.id} style={{ cursor: "pointer" }} onClick={() => window.location.href = `/broadcast/${broadcast.id}`}>
                   <td style={{ fontWeight: 600 }}>{broadcast.subject}</td>
-                  <td>{broadcast.segmentType}</td>
-                  <td>{broadcast.channel}</td>
+                  <td style={{ fontSize: 13 }}>
+                    {broadcast.segmentType === 'SUBSCRIBERS' ? 'Paid Users' : broadcast.segmentType === 'FREE' ? 'Free Tier' : 'All Users'}
+                  </td>
+                  <td style={{ fontSize: 13 }}>{broadcast.channel}</td>
                   <td>{formatNumber(broadcast.totalRecipients)}</td>
                   <td style={{ fontSize: 13, fontFamily: 'monospace' }}>
-                    <span style={{ color: "var(--admin-success)" }}>{formatNumber(broadcast.delivered)}</span> / 
-                    <span style={{ color: "#ef4444" }}> {formatNumber(broadcast.failed)}</span> / 
-                    <span style={{ color: "var(--admin-cyan)" }}> {formatNumber(broadcast.opened)}</span>
+                    <span style={{ color: "var(--admin-success)" }}>{formatNumber(broadcast.delivered)}</span> /
+                    <span style={{ color: "#ef4444" }}> {formatNumber(broadcast.failed)}</span>
                   </td>
                   <td>
                     <span className={`admin-badge ${
                       broadcast.status === 'SENT' ? 'admin-badge--success' : 
                       broadcast.status === 'DRAFT' ? 'admin-badge--muted' : 
-                      broadcast.status === 'SCHEDULED' ? 'admin-badge--warning' : 'admin-badge--primary'
+                      broadcast.status === 'SCHEDULED' ? 'admin-badge--warning' :
+                      broadcast.status === 'SENDING' ? 'admin-badge--primary' : 'admin-badge--muted'
                     }`}>
                       {broadcast.status}
                     </span>
                   </td>
                   <td style={{ color: "var(--admin-text-muted)", fontSize: 13 }}>
                     {broadcast.sentAt ? new Date(broadcast.sentAt).toLocaleDateString() : (broadcast.scheduledAt ? new Date(broadcast.scheduledAt).toLocaleDateString() : '-')}
+                  </td>
+                  <td>
+                    <Link href={`/broadcast/${broadcast.id}`} className="admin-btn admin-btn--ghost admin-btn--sm"
+                      onClick={(e) => e.stopPropagation()}>
+                      {broadcast.status === 'DRAFT' || broadcast.status === 'SCHEDULED' ? 'Edit' : 'View'}
+                    </Link>
                   </td>
                 </tr>
               ))

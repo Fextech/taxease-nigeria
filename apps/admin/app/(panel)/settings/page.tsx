@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useForm } from "react-hook-form";
+import { toast } from "sonner";
 
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('profile');
@@ -32,6 +33,39 @@ export default function SettingsPage() {
   // Integrations Data
   const { data: integrations } = trpc.admin.settings.getIntegrationStatuses.useQuery();
   const pingIntegration = trpc.admin.settings.pingIntegration.useMutation();
+
+  // Maintenance Data
+  const { data: maintenanceData, refetch: refetchMaintenance } = trpc.admin.settings.getMaintenanceConfig.useQuery();
+  const updateMaintenance = trpc.admin.settings.updateMaintenanceConfig.useMutation({
+      onSuccess: () => { refetchMaintenance(); toast.success('Maintenance settings saved!'); }
+  });
+  const toggleMaintenance = trpc.admin.settings.toggleMaintenanceMode.useMutation({
+      onSuccess: () => refetchMaintenance()
+  });
+  const [maintenanceHtml, setMaintenanceHtml] = useState('');
+  const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
+
+  useEffect(() => {
+    if (maintenanceData) {
+      setMaintenanceHtml(maintenanceData.html);
+      setMaintenanceEnabled(maintenanceData.enabled);
+    }
+  }, [maintenanceData]);
+
+  // How To Guide Data
+  const { data: howToData, refetch: refetchHowTo } = trpc.admin.settings.getHowToGuide.useQuery();
+  const updateHowTo = trpc.admin.settings.updateHowToGuide.useMutation({
+      onSuccess: () => { refetchHowTo(); toast.success('How-To guide saved!'); }
+  });
+  const [howToPages, setHowToPages] = useState<string[]>([]);
+  const [activeHowToPageIdx, setActiveHowToPageIdx] = useState<number>(0);
+
+  useEffect(() => {
+    if (howToData) {
+      setHowToPages(howToData.pages.length > 0 ? howToData.pages : ['<h2 style="color:#fff;">Welcome to TaxEase</h2><p>Here is how to use the app.</p>']);
+      setActiveHowToPageIdx(0);
+    }
+  }, [howToData]);
 
   const handlePing = async (service: string) => {
     try {
@@ -70,6 +104,8 @@ export default function SettingsPage() {
             { id: 'security', icon: 'lock', label: 'Security & 2FA' },
             { id: 'sessions', icon: 'devices', label: 'Active Sessions' },
             { id: 'integrations', icon: 'hub', label: 'Integrations' },
+            { id: 'maintenance', icon: 'construction', label: 'Maintenance Mode' },
+            { id: 'howto', icon: 'school', label: 'How-To Guide' },
           ].map(tab => (
             <button
               key={tab.id}
@@ -232,6 +268,218 @@ export default function SettingsPage() {
                             </button>
                         </div>
                     ))}
+                </div>
+            </div>
+          )}
+
+          {/* MAINTENANCE MODE */}
+          {activeTab === 'maintenance' && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                        <h2 style={{ fontSize: 18, color: "var(--admin-text)", margin: 0 }}>Maintenance Mode</h2>
+                        <p style={{ fontSize: 13, color: "var(--admin-text-muted)", margin: "4px 0 0" }}>
+                            When enabled, the sign-up page will redirect users to a maintenance page.
+                        </p>
+                    </div>
+                    <button
+                        onClick={() => {
+                            const newVal = !maintenanceEnabled;
+                            setMaintenanceEnabled(newVal);
+                            toggleMaintenance.mutate({ enabled: newVal });
+                        }}
+                        style={{
+                            display: "flex", alignItems: "center", gap: 10, padding: "10px 20px",
+                            borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600, fontSize: 13,
+                            background: maintenanceEnabled ? "rgba(239, 68, 68, 0.15)" : "rgba(0, 240, 255, 0.1)",
+                            color: maintenanceEnabled ? "#ef4444" : "var(--admin-cyan)",
+                            transition: "all 0.2s"
+                        }}
+                    >
+                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                            {maintenanceEnabled ? "toggle_on" : "toggle_off"}
+                        </span>
+                        {maintenanceEnabled ? "Maintenance ON — Sign-ups Blocked" : "Maintenance OFF — Sign-ups Open"}
+                    </button>
+                </div>
+
+                <div style={{ height: 1, backgroundColor: "rgba(255,255,255,0.05)" }}></div>
+
+                <div>
+                    <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--admin-text)", margin: "0 0 12px" }}>Page Content (HTML)</h3>
+                    <p style={{ fontSize: 12, color: "var(--admin-text-muted)", margin: "0 0 16px" }}>
+                        Write raw HTML below. It will be embedded inside the maintenance page between the header and footer.
+                    </p>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, minHeight: 400 }}>
+                        {/* Editor */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--admin-text-muted)", textTransform: "uppercase", letterSpacing: 1 }}>HTML Editor</span>
+                            <textarea
+                                value={maintenanceHtml}
+                                onChange={(e) => setMaintenanceHtml(e.target.value)}
+                                spellCheck={false}
+                                style={{
+                                    flex: 1, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 13,
+                                    lineHeight: 1.6, padding: 16, borderRadius: 8, resize: "vertical",
+                                    background: "rgba(0,0,0,0.3)", color: "#e2e8f0", border: "1px solid rgba(255,255,255,0.08)",
+                                    outline: "none", minHeight: 360,
+                                }}
+                                placeholder='<h2 style="color:#fff;">Under Maintenance</h2>'
+                            />
+                        </div>
+                        {/* Preview */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--admin-text-muted)", textTransform: "uppercase", letterSpacing: 1 }}>Live Preview</span>
+                            <div style={{
+                                flex: 1, borderRadius: 8, border: "1px solid rgba(255,255,255,0.08)",
+                                overflow: "hidden", background: "#0f1c1e", minHeight: 360,
+                            }}>
+                                <iframe
+                                    srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f1c1e;color:#cbd5e1;}</style></head><body>${maintenanceHtml}</body></html>`}
+                                    style={{ width: "100%", height: "100%", border: "none", minHeight: 360 }}
+                                    sandbox="allow-same-origin"
+                                    title="Maintenance page preview"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 8 }}>
+                    <button
+                        className="admin-btn admin-btn--primary"
+                        disabled={updateMaintenance.isPending}
+                        onClick={() => updateMaintenance.mutate({ enabled: maintenanceEnabled, html: maintenanceHtml })}
+                    >
+                        {updateMaintenance.isPending ? "Saving..." : "Save Maintenance Page"}
+                    </button>
+                </div>
+            </div>
+          )}
+
+          {/* HOW-TO GUIDE */}
+          {activeTab === 'howto' && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                    <div>
+                        <h2 style={{ fontSize: 18, color: "var(--admin-text)", margin: 0 }}>How-To Guide (Onboarding)</h2>
+                        <p style={{ fontSize: 13, color: "var(--admin-text-muted)", margin: "4px 0 0" }}>
+                            Manage the pages of the onboarding pop-up shown to users on their first login.
+                        </p>
+                    </div>
+                </div>
+
+                <div style={{ display: "flex", gap: 12, overflowX: "auto", paddingBottom: 8 }}>
+                    {howToPages.map((_, idx) => (
+                        <button
+                            key={idx}
+                            onClick={() => setActiveHowToPageIdx(idx)}
+                            style={{
+                                padding: "8px 16px",
+                                borderRadius: 8,
+                                border: activeHowToPageIdx === idx ? "1px solid var(--admin-cyan)" : "1px solid rgba(255,255,255,0.1)",
+                                background: activeHowToPageIdx === idx ? "rgba(0, 240, 255, 0.1)" : "transparent",
+                                color: activeHowToPageIdx === idx ? "var(--admin-cyan)" : "var(--admin-text-muted)",
+                                cursor: "pointer",
+                                fontSize: 13,
+                                fontWeight: 600,
+                                flexShrink: 0
+                            }}
+                        >
+                            Page {idx + 1}
+                        </button>
+                    ))}
+                    <button
+                        onClick={() => {
+                            setHowToPages([...howToPages, '<h2 style="color:#fff;">New Page</h2>']);
+                            setActiveHowToPageIdx(howToPages.length);
+                        }}
+                        style={{
+                            padding: "8px 16px",
+                            borderRadius: 8,
+                            border: "1px dashed rgba(255,255,255,0.2)",
+                            background: "transparent",
+                            color: "var(--admin-text-muted)",
+                            cursor: "pointer",
+                            fontSize: 13,
+                            display: "flex", alignItems: "center", gap: 6,
+                            flexShrink: 0
+                        }}
+                    >
+                        <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
+                        Add Page
+                    </button>
+                </div>
+
+                <div style={{ height: 1, backgroundColor: "rgba(255,255,255,0.05)" }}></div>
+
+                <div>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "12px" }}>
+                        <h3 style={{ fontSize: 14, fontWeight: 600, color: "var(--admin-text)", margin: 0 }}>Page {activeHowToPageIdx + 1} Content (HTML)</h3>
+                        {howToPages.length > 1 && (
+                            <button
+                                onClick={() => {
+                                    const newPages = [...howToPages];
+                                    newPages.splice(activeHowToPageIdx, 1);
+                                    setHowToPages(newPages);
+                                    setActiveHowToPageIdx(Math.max(0, activeHowToPageIdx - 1));
+                                }}
+                                style={{
+                                    border: "none", background: "transparent", color: "#ef4444", 
+                                    cursor: "pointer", fontSize: 12, display: "flex", alignItems: "center", gap: 4
+                                }}
+                            >
+                                <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
+                                Remove Page
+                            </button>
+                        )}
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, minHeight: 400 }}>
+                        {/* Editor */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--admin-text-muted)", textTransform: "uppercase", letterSpacing: 1 }}>HTML Editor</span>
+                            <textarea
+                                value={howToPages[activeHowToPageIdx] || ""}
+                                onChange={(e) => {
+                                    const newPages = [...howToPages];
+                                    newPages[activeHowToPageIdx] = e.target.value;
+                                    setHowToPages(newPages);
+                                }}
+                                spellCheck={false}
+                                style={{
+                                    flex: 1, fontFamily: "'JetBrains Mono', 'Fira Code', monospace", fontSize: 13,
+                                    lineHeight: 1.6, padding: 16, borderRadius: 8, resize: "vertical",
+                                    background: "rgba(0,0,0,0.3)", color: "#e2e8f0", border: "1px solid rgba(255,255,255,0.08)",
+                                    outline: "none", minHeight: 360,
+                                }}
+                            />
+                        </div>
+                        {/* Preview */}
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: "var(--admin-text-muted)", textTransform: "uppercase", letterSpacing: 1 }}>Live Preview</span>
+                            <div style={{
+                                flex: 1, borderRadius: 8, border: "1px solid rgba(255,255,255,0.08)",
+                                overflow: "hidden", background: "#0f1c1e", minHeight: 360,
+                            }}>
+                                <iframe
+                                    srcDoc={`<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{margin:0;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#0f1c1e;color:#cbd5e1;}</style></head><body>${howToPages[activeHowToPageIdx] || ""}</body></html>`}
+                                    style={{ width: "100%", height: "100%", border: "none", minHeight: 360 }}
+                                    sandbox="allow-same-origin"
+                                    title="How-To slide preview"
+                                />
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 8 }}>
+                    <button
+                        className="admin-btn admin-btn--primary"
+                        disabled={updateHowTo.isPending}
+                        onClick={() => updateHowTo.mutate({ pages: howToPages })}
+                    >
+                        {updateHowTo.isPending ? "Saving..." : "Save How-To Guide"}
+                    </button>
                 </div>
             </div>
           )}

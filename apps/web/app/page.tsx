@@ -1,27 +1,15 @@
 import Link from "next/link";
 import Image from "next/image";
+import BackgroundLayer from "@/components/BackgroundLayer";
+import MarketingHeader from "@/components/MarketingHeader";
+import MarketingFooter from "@/components/MarketingFooter";
+import SignUpLink from "@/components/SignUpLink";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-[var(--te-primary-dark)] text-[#f1f5f7] font-sans overflow-x-hidden">
-      {/* Navigation Bar */}
-      <nav className="sticky top-0 z-50 bg-[#162e31]/85 backdrop-blur-md border-b border-white/5">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Link href="/" className="flex items-center">
-              <Image src="/Banklense-logo.svg" alt="Banklens Nigeria" width={180} height={72} className="h-10 sm:h-12 w-auto" priority />
-            </Link>
-          </div>
-          <div className="flex items-center gap-4">
-            <Link href="/sign-in" className="text-slate-400 text-sm font-semibold hover:text-white transition-colors">
-              Log In
-            </Link>
-            <Link href="/sign-up" className="bg-primary text-white px-5 py-2.5 rounded-lg text-sm font-semibold hover:bg-[#e09228] transition-all hover:-translate-y-[1px]">
-              Get Started
-            </Link>
-          </div>
-        </div>
-      </nav>
+    <div className="min-h-screen relative text-[#f1f5f7] font-sans overflow-x-hidden flex flex-col">
+      <BackgroundLayer />
+      <MarketingHeader />
 
       <main>
         {/* Hero Section */}
@@ -38,10 +26,10 @@ export default function Home() {
               Upload your bank statements in PDF or Excel. Our advanced AI categorizes your transactions, and help you annotate your exact personal income tax liability, and generates verifiable reports for the FCT-IRS or LIRS in minutes.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 w-full sm:w-auto">
-              <Link href="/sign-up" className="flex items-center justify-center w-full sm:w-auto gap-2 bg-primary text-white px-8 py-4 rounded-xl text-base font-semibold transition-all hover:bg-[#e09228] hover:-translate-y-0.5 shadow-[0_4px_14px_rgba(240,160,48,0.4)] hover:shadow-[0_6px_20px_rgba(240,160,48,0.5)]">
+              <SignUpLink className="flex items-center justify-center w-full sm:w-auto gap-2 bg-primary text-white px-8 py-4 rounded-xl text-base font-semibold transition-all hover:bg-[#e09228] hover:-translate-y-0.5 shadow-[0_4px_14px_rgba(240,160,48,0.4)] hover:shadow-[0_6px_20px_rgba(240,160,48,0.5)]">
                 Start for Free
                 <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-              </Link>
+              </SignUpLink>
               <a href="#features" className="flex justify-center w-full sm:w-auto bg-white/5 text-white border border-white/10 px-8 py-4 rounded-xl text-base font-semibold hover:bg-white/10 hover:border-white/20 transition-all">
                 See How It Works
               </a>
@@ -122,37 +110,21 @@ export default function Home() {
         </section>
 
         {/* CTA Section */}
-        <section className="py-[100px] px-6 bg-gradient-to-b from-primary to-[var(--te-primary-dark)]">
-          <div className="max-w-3xl mx-auto text-center bg-[#23494d]/40 border border-[#23494d] py-16 px-8 rounded-[32px] relative overflow-hidden">
+        <section className="py-[100px] px-6">
+          <div className="max-w-3xl mx-auto text-center bg-[#23494d]/40 border border-[#23494d] py-16 px-8 rounded-[32px] relative overflow-hidden backdrop-blur-sm">
             <h2 className="text-[clamp(32px,4vw,48px)] font-extrabold text-white mb-4 tracking-tight">Stop struggling with spreadsheets.</h2>
             <p className="text-lg text-slate-300 max-w-[500px] mx-auto mb-8">
               Join the growing number of freelancers, consultants, and business owners in Nigeria taking control of their taxes.
             </p>
-            <Link href="/sign-up" className="inline-flex justify-center bg-primary text-white px-8 py-4 rounded-xl text-base font-semibold hover:bg-[#e09228] transition-all shadow-[0_4px_14px_rgba(240,160,48,0.4)]">
+            <SignUpLink className="inline-flex justify-center bg-primary text-white px-8 py-4 rounded-xl text-base font-semibold hover:bg-[#e09228] transition-all shadow-[0_4px_14px_rgba(240,160,48,0.4)]">
               Create your free account
-            </Link>
+            </SignUpLink>
           </div>
         </section>
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/5 py-10 px-6">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-          <div className="flex flex-col items-center md:items-start text-center md:text-left">
-            <div className="flex items-center gap-3">
-              <Image src="/Banklense-logo.svg" alt="Banklens Nigeria" width={180} height={72} className="h-10 sm:h-12 w-auto opacity-80 hover:opacity-100 transition-opacity" />
-            </div>
-            <p className="text-[13px] text-slate-500 mt-2">
-              © {new Date().getFullYear()} Banklens Technology. All rights reserved.
-            </p>
-          </div>
-          <div className="flex gap-6">
-            <Link href="/privacy" className="text-sm text-slate-400 hover:text-white transition-colors">Privacy Policy</Link>
-            <Link href="/terms" className="text-sm text-slate-400 hover:text-white transition-colors">Terms of Service</Link>
-            <a href="mailto:support@flowiselabs.com" className="text-sm text-slate-400 hover:text-white transition-colors">Contact Support</a>
-          </div>
-        </div>
-      </footer>
+      <MarketingFooter />
     </div>
   );
 }

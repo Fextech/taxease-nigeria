@@ -4,13 +4,16 @@ import {
     fastifyTRPCPlugin,
     type FastifyTRPCPluginOptions,
 } from '@trpc/server/adapters/fastify';
+import { PrismaClient } from '@prisma/client';
 import { createContext } from './trpc/context.js';
 import { appRouter, type AppRouter } from './routers/index.js';
+import { startScheduledBroadcastPoller } from './routers/admin/broadcast.js';
 
 const PORT = Number(process.env.API_PORT) || 3001;
 
 async function main() {
     const fastify = Fastify({
+        maxParamLength: 10000,
         logger: {
             transport: {
                 target: 'pino-pretty',
@@ -52,6 +55,10 @@ async function main() {
         fastify.log.info(`🚀 Banklens API running at http://localhost:${PORT}`);
         fastify.log.info(`📋 Health check: http://localhost:${PORT}/health`);
         fastify.log.info(`🔌 tRPC endpoint: http://localhost:${PORT}/trpc`);
+
+        // Start the scheduled broadcast poller
+        const prisma = new PrismaClient();
+        startScheduledBroadcastPoller(prisma);
     } catch (err) {
         fastify.log.error(err);
         process.exit(1);

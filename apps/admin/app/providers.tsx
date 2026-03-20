@@ -12,6 +12,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
       links: [
         httpBatchLink({
           url: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/trpc`,
+          fetch: (url, options) => {
+            return fetch(url, { ...options, cache: "no-store" } as RequestInit);
+          },
           async headers() {
             // Include admin JWT in Authorization header
             if (typeof window !== "undefined") {

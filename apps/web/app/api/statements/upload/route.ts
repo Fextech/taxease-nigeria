@@ -48,12 +48,6 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace is locked' }, { status: 403 });
             }
 
-            if (workspace.statementCredits <= 0) {
-                return NextResponse.json(
-                    { error: 'Insufficient statement credits. Purchase more credits to continue.' },
-                    { status: 403 }
-                );
-            }
 
             // Check how many statements already exist for this month
             const existingCount = await prisma.statement.count({
@@ -112,17 +106,8 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
             }
 
-            if (workspace.statementCredits <= 0) {
-                return NextResponse.json({ error: 'Insufficient statement credits.' }, { status: 403 });
-            }
-
-            // Decrement credit and create statement in a transaction
-            const [_, statement] = await prisma.$transaction([
-                prisma.workspace.update({
-                    where: { id: data.workspaceId },
-                    data: { statementCredits: { decrement: 1 } },
-                }),
-                prisma.statement.create({
+            // Create statement record
+            const statement = await prisma.statement.create({
                 data: {
                     workspaceId: data.workspaceId,
                     month: data.month,
@@ -132,8 +117,7 @@ export async function POST(request: Request) {
                     fileHash: data.fileHash || null,
                     parseStatus: 'PROCESSING',
                 },
-            }),
-            ]);
+            });
 
             // Create notification
             await prisma.notification.create({

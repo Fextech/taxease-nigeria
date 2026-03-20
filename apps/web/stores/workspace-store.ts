@@ -13,6 +13,8 @@ export interface Workspace {
   allowedBanksCount?: number;
   additionalDeductions?: { label: string; amount: string }[] | null;
   annualRentAmount?: bigint | null;
+  unlockedMonths?: number[] | null;
+  unlockMethod?: string | null;
 }
 
 interface WorkspaceState {

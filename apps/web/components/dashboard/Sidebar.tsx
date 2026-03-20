@@ -70,15 +70,32 @@ export default function Sidebar({ collapsed, onToggle }: { collapsed: boolean; o
           {systemItems.map(renderLink)}
         </nav>
 
-        {/* Plan Footer */}
+        {/* Plan & Guide Footer */}
         {!collapsed && (
           <div className="sidebar-footer">
+            <button
+              onClick={() => window.dispatchEvent(new Event("open-how-to"))}
+              style={{
+                display: "flex", alignItems: "center", gap: "12px", width: "100%", padding: "12px 16px",
+                marginBottom: "16px", borderRadius: "8px", border: "none", background: "rgba(0,0,0,0.2)",
+                color: "var(--te-text-muted)", cursor: "pointer", transition: "all 0.2s"
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "var(--te-cyan)"; e.currentTarget.style.background = "rgba(0, 240, 255, 0.05)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "var(--te-text-muted)"; e.currentTarget.style.background = "rgba(0,0,0,0.2)"; }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 20 }}>menu_book</span>
+              <span style={{ fontSize: 13, fontWeight: 500 }}>How-to Guide</span>
+            </button>
             <div className="sidebar-plan-card">
               <p className="sidebar-plan-label">Current Plan</p>
               <p className="sidebar-plan-tier" style={{ textTransform: "capitalize" }}>
-                {isUnlocked ? "Standard (Unlocked)" : "Free Tier"}
+                {isUnlocked
+                  ? "Standard (Unlocked)"
+                  : activeWorkspace?.unlockMethod === 'CREDIT'
+                    ? `Credit Access (${((activeWorkspace?.unlockedMonths as number[] | undefined) ?? []).length}/9)`
+                    : "Free Tier"}
               </p>
-              {!isUnlocked && (
+              {!isUnlocked && !activeWorkspace?.unlockMethod && (
                 <button className="sidebar-plan-btn" onClick={() => window.location.href = "/settings?tab=billing"}>
                   Unlock Full Year
                 </button>

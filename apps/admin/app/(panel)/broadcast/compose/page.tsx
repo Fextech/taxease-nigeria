@@ -1,13 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { formatNumber } from "@/lib/utils";
+import { useEditor, EditorContent } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Placeholder from "@tiptap/extension-placeholder";
 
 const SEGMENTS = [
   { id: "ALL", label: "All Users", icon: "people" },
-  { id: "SUBSCRIBERS", label: "Subscribers Only", icon: "star" },
+  { id: "SUBSCRIBERS", label: "Paid Users", icon: "workspace_premium" },
   { id: "FREE", label: "Free Tier Only", icon: "person" },
 ];
 
@@ -17,6 +21,82 @@ const CHANNELS = [
   { id: "BOTH", label: "Both Channels", icon: "campaign" },
 ];
 
+// ─── Rich Text Editor ───────────────────────────────────
+
+function BroadcastEditor({ value, onChange }: { value: string; onChange: (html: string) => void }) {
+  const editor = useEditor({
+    immediatelyRender: false,
+    extensions: [
+      StarterKit,
+      Placeholder.configure({ placeholder: "Start composing your broadcast message... Use rich formatting to make it stand out." }),
+    ],
+    content: value,
+    onUpdate: ({ editor }) => {
+      onChange(editor.getHTML());
+    },
+    editorProps: {
+      attributes: {
+        class: "prose prose-sm focus:outline-none min-h-[200px] p-4",
+        style: "min-height: 200px; padding: 16px; font-size: 14px; line-height: 1.6; color: var(--admin-text); outline: none;",
+      }
+    }
+  });
+
+  // Sync when value is cleared externally
+  useEffect(() => {
+    if (editor && value === "" && editor.getHTML() !== "<p></p>") {
+      editor.commands.setContent("");
+    }
+  }, [value, editor]);
+
+  if (!editor) return null;
+
+  const ToolbarBtn = ({ icon, isActive, onClick }: { icon: string; isActive: boolean; onClick: () => void }) => (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: 28, height: 28,
+        display: "flex", alignItems: "center", justifyContent: "center",
+        borderRadius: 4,
+        background: isActive ? "var(--admin-border)" : "transparent",
+        border: "none", cursor: "pointer",
+      }}
+    >
+      <span className="material-symbols-outlined" style={{ fontSize: 16, color: isActive ? "var(--admin-text)" : "var(--admin-text-muted)" }}>
+        {icon}
+      </span>
+    </button>
+  );
+
+  return (
+    <div style={{ border: "1px solid var(--admin-border)", borderRadius: "0 0 8px 8px", overflow: "hidden" }}>
+      {/* Toolbar */}
+      <div style={{
+        display: "flex", gap: 4, padding: "8px 12px",
+        background: "var(--admin-bg)",
+        borderBottom: "1px solid var(--admin-border)",
+      }}>
+        <ToolbarBtn icon="format_bold" isActive={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()} />
+        <ToolbarBtn icon="format_italic" isActive={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()} />
+        <ToolbarBtn icon="format_strikethrough" isActive={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()} />
+        <div style={{ width: 1, background: "var(--admin-border)", margin: "0 4px" }} />
+        <ToolbarBtn icon="format_list_bulleted" isActive={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()} />
+        <ToolbarBtn icon="format_list_numbered" isActive={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()} />
+        <div style={{ width: 1, background: "var(--admin-border)", margin: "0 4px" }} />
+        <ToolbarBtn icon="format_quote" isActive={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()} />
+        <ToolbarBtn icon="horizontal_rule" isActive={false} onClick={() => editor.chain().focus().setHorizontalRule().run()} />
+      </div>
+      {/* Editor */}
+      <div style={{ background: "var(--admin-surface)", minHeight: 200 }}>
+        <EditorContent editor={editor} />
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Compose Page ──────────────────────────────────
+
 export default function BroadcastComposePage() {
   const router = useRouter();
   const [activeSegment, setActiveSegment] = useState("ALL");
@@ -25,14 +105,26 @@ export default function BroadcastComposePage() {
   const [body, setBody] = useState("");
   const [isScheduled, setIsScheduled] = useState(false);
   const [scheduleDate, setScheduleDate] = useState("");
+  const [selectedTaxYears, setSelectedTaxYears] = useState<number[]>([]);
 
+  // Fetch available tax years
+  const { data: taxYearsData } = trpc.admin.broadcast.getAvailableTaxYears.useQuery();
+
+  // Segment estimate with tax year filter
   const { data: estimateData, isLoading: isEstimating } = trpc.admin.broadcast.getSegmentEstimate.useQuery({
-    segmentType: activeSegment as any
+    segmentType: activeSegment as any,
+    taxYears: selectedTaxYears.length > 0 ? selectedTaxYears : undefined,
   });
 
   const { mutateAsync: createBroadcast, isPending } = trpc.admin.broadcast.createBroadcast.useMutation();
 
-  const handleSend = async () => {
+  const toggleTaxYear = (year: number) => {
+    setSelectedTaxYears(prev =>
+      prev.includes(year) ? prev.filter(y => y !== year) : [...prev, year]
+    );
+  };
+
+  const handleSend = async (saveAsDraft = false) => {
     if (!subject || !body) {
       alert("Subject and Body are required.");
       return;
@@ -44,7 +136,8 @@ export default function BroadcastComposePage() {
         body,
         channel: activeChannel as any,
         segmentType: activeSegment as any,
-        saveAsDraft: false,
+        taxYears: selectedTaxYears.length > 0 ? selectedTaxYears : undefined,
+        saveAsDraft,
         scheduledAt: isScheduled && scheduleDate ? new Date(scheduleDate) : undefined,
       });
       router.push("/broadcast");
@@ -54,6 +147,13 @@ export default function BroadcastComposePage() {
   };
 
   return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      {/* Back Button */}
+      <Link href="/broadcast" className="admin-btn admin-btn--ghost admin-btn--sm" style={{ alignSelf: "flex-start" }}>
+        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>arrow_back</span>
+        Back to Broadcasts
+      </Link>
+
     <div style={{ display: "grid", gridTemplateColumns: "220px 1fr 280px", gap: 20, minHeight: "calc(100vh - 120px)" }}>
       {/* Left Sidebar — Targeting */}
       <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -107,44 +207,12 @@ export default function BroadcastComposePage() {
 
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
           <label className="admin-label">Message Content</label>
-          {/* Toolbar */}
-          <div style={{
-            display: "flex",
-            gap: 4,
-            padding: "8px 12px",
-            background: "var(--admin-bg)",
-            borderRadius: "var(--admin-radius) var(--admin-radius) 0 0",
-            border: "1px solid var(--admin-border)",
-            borderBottom: "none",
-          }}>
-            {["format_bold", "format_italic", "format_list_bulleted", "link", "image"].map((icon) => (
-              <button key={icon} className="admin-header-icon-btn">
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{icon}</span>
-              </button>
-            ))}
-            <button className="admin-btn admin-btn--primary admin-btn--sm" style={{ marginLeft: "auto" }} onClick={() => setBody(prev => prev + ' {{first_name}} ')}>
-              <span className="material-symbols-outlined" style={{ fontSize: 14 }}>token</span>
-              Insert Token
-            </button>
-          </div>
-          <textarea
-            className="admin-input"
-            style={{
-              flex: 1,
-              minHeight: 200,
-              borderRadius: "0 0 var(--admin-radius) var(--admin-radius)",
-              resize: "vertical",
-              fontFamily: 'monospace'
-            }}
-            placeholder="Start typing your HTML or plain text message here... Use {{first_name}} to address users personally."
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-          />
+          <BroadcastEditor value={body} onChange={setBody} />
         </div>
 
       </div>
 
-      {/* Right Sidebar — Preview + Schedule */}
+      {/* Right Sidebar — Preview + Schedule + Tax Year */}
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         <div className="admin-card">
           <p className="admin-kpi-label">Segment Preview</p>
@@ -153,6 +221,31 @@ export default function BroadcastComposePage() {
           </p>
           <p style={{ fontSize: 12, color: "var(--admin-text-muted)", margin: 0 }}>Total Reach</p>
         </div>
+
+        {/* Tax Year Filter */}
+        {taxYearsData && taxYearsData.length > 0 && (
+          <div className="admin-card">
+            <p className="admin-kpi-label" style={{ marginBottom: 12 }}>Filter by Tax Year</p>
+            <p style={{ fontSize: 12, color: "var(--admin-text-muted)", margin: "0 0 12px" }}>
+              Select tax years to narrow your audience. Leave empty for all.
+            </p>
+            {taxYearsData.map((year: number) => (
+              <label key={year} style={{
+                display: "flex", alignItems: "center", gap: 8,
+                marginBottom: 8, cursor: "pointer",
+                fontSize: 13, color: "var(--admin-text)",
+              }}>
+                <input
+                  type="checkbox"
+                  checked={selectedTaxYears.includes(year)}
+                  onChange={() => toggleTaxYear(year)}
+                  style={{ accentColor: "var(--admin-primary)" }}
+                />
+                {year} Tax Year
+              </label>
+            ))}
+          </div>
+        )}
 
         <div className="admin-card">
           <p className="admin-kpi-label" style={{ marginBottom: 12 }}>Schedule Delivery</p>
@@ -168,6 +261,7 @@ export default function BroadcastComposePage() {
               className="admin-input" 
               value={scheduleDate}
               onChange={(e) => setScheduleDate(e.target.value)}
+              min={new Date().toISOString().slice(0, 16)}
             />
           )}
         </div>
@@ -184,13 +278,24 @@ export default function BroadcastComposePage() {
         <button 
           className="admin-btn admin-btn--primary" 
           style={{ width: "100%", justifyContent: "center", padding: 12 }}
-          onClick={handleSend}
+          onClick={() => handleSend(false)}
           disabled={isPending || (!subject || !body)}
         >
           {isPending ? "Processing..." : (isScheduled ? "Schedule Broadcast" : "Send Now")}
           <span className="material-symbols-outlined" style={{ fontSize: 18 }}>send</span>
         </button>
+
+        <button 
+          className="admin-btn admin-btn--ghost" 
+          style={{ width: "100%", justifyContent: "center", padding: 12 }}
+          onClick={() => handleSend(true)}
+          disabled={isPending || !subject}
+        >
+          <span className="material-symbols-outlined" style={{ fontSize: 18 }}>save</span>
+          Save as Draft
+        </button>
       </div>
+    </div>
     </div>
   );
 }

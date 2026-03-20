@@ -5,6 +5,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 // ─────────────────────────────────────────────
@@ -159,7 +160,9 @@ model Workspace {
   // ── Billing / Credits ─────────────────────────────────
   isUnlocked         Boolean         @default(false)  // false = free tier (3 months)
   allowedBanksCount  Int             @default(1)       // 1 for free, upgradeable
-  statementCredits   Int             @default(3)       // free tier gets 3 credits
+  statementCredits   Int             @default(0)       // starts at 0; earned via purchase or admin gift
+  unlockedMonths     Json?                              // Array of month numbers [4,5,6..] unlocked via credit
+  unlockMethod       String?                            // null = not chosen, "FULL" = paid full year, "CREDIT" = per-month credits
 
   // ── Tax Data ──────────────────────────────────────────
   annualRentAmount   BigInt?         // Annual rent paid (kobo) — used for 2026+ rent relief
