@@ -1,14 +1,31 @@
 "use client";
 
+import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { formatNumber } from "@/lib/utils";
 import Link from "next/link";
 
 export default function SystemHealthPage() {
+  const utils = trpc.useUtils();
+  
   const { data: deployment } = trpc.admin.system.getDeploymentInfo.useQuery();
   const { data: statuses, isLoading: statusesLoading } = trpc.admin.system.getServiceStatuses.useQuery(undefined, { refetchInterval: 10000 });
   const { data: queueStats, isLoading: queueLoading } = trpc.admin.system.getJobQueueStats.useQuery(undefined, { refetchInterval: 5000 });
   const { data: errors } = trpc.admin.system.getRecentErrors.useQuery();
+
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const flushMutation = trpc.admin.system.flushQueue.useMutation({
+    onSuccess: () => {
+      utils.admin.system.getJobQueueStats.invalidate();
+    }
+  });
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await utils.admin.system.invalidate();
+    setIsRefreshing(false);
+  };
 
   const getStatusColor = (status: string) => {
     switch(status) {
@@ -33,8 +50,11 @@ export default function SystemHealthPage() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button className="admin-btn admin-btn--secondary">
-            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>refresh</span> Refresh All
+          <button className="admin-btn admin-btn--secondary" onClick={handleRefresh} disabled={isRefreshing}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16 }}>
+              {isRefreshing ? 'sync' : 'refresh'}
+            </span> 
+            {isRefreshing ? 'Refreshing...' : 'Refresh All'}
           </button>
         </div>
       </div>
@@ -155,7 +175,14 @@ export default function SystemHealthPage() {
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                   <button className="admin-btn admin-btn--secondary" style={{ width: "100%", justifyContent: "center" }}>Open BullBoard Dashboard</button>
-                  <button className="admin-btn admin-btn--danger" style={{ width: "100%", justifyContent: "center" }} disabled>Flush Failed Jobs</button>
+                  <button 
+                    className="admin-btn admin-btn--danger" 
+                    style={{ width: "100%", justifyContent: "center" }}
+                    disabled={flushMutation.isPending || !queueStats?.failed}
+                    onClick={() => flushMutation.mutate()}
+                  >
+                    {flushMutation.isPending ? "Flushing..." : "Flush Failed Jobs"}
+                  </button>
                 </div>
               </>
             )}

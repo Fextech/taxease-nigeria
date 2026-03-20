@@ -415,4 +415,43 @@ export const adminUsersRouter = router({
 
             return { success: true };
         }),
+
+    createUser: adminProcedure
+        .input(z.object({
+            name: z.string().min(1),
+            email: z.string().email(),
+            plan: z.enum(['FREE', 'PRO']).default('FREE'),
+        }))
+        .mutation(async ({ ctx, input }) => {
+            const existing = await ctx.prisma.user.findUnique({ where: { email: input.email } });
+            if (existing) throw new Error("User with this email already exists");
+
+            // Create a random temporary password
+            const bcrypt = await import('bcryptjs');
+            const tempPassword = Math.random().toString(36).slice(-10);
+            const passwordHash = await bcrypt.hash(tempPassword, 10);
+
+            const user = await ctx.prisma.user.create({
+                data: {
+                    name: input.name,
+                    email: input.email,
+                    password: passwordHash,
+                    plan: input.plan
+                }
+            });
+
+            // Audit log
+            await ctx.prisma.adminAuditLog.create({
+                data: {
+                    adminId: ctx.admin.id,
+                    adminEmail: ctx.admin.email,
+                    adminRole: ctx.admin.role,
+                    actionCode: 'USER_CREATED',
+                    targetEntity: `User:${user.id}`,
+                    metadata: { email: user.email, plan: user.plan }
+                }
+            });
+
+            return { success: true, tempPassword, user };
+        }),
 });

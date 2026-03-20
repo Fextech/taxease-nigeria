@@ -30,6 +30,15 @@ export default function UsersPage() {
   const [status, setStatus] = useState("All"); // All, Active, Suspended, Deleted
   const [cursor, setCursor] = useState<string | null>(null);
 
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [newUserName, setNewUserName] = useState("");
+  const [newUserEmail, setNewUserEmail] = useState("");
+  const [newUserPlan, setNewUserPlan] = useState<"FREE" | "PRO">("FREE");
+  const [createdAccountInfo, setCreatedAccountInfo] = useState<{ email: string, tempPassword: string } | null>(null);
+
+  const { mutateAsync: createUser, isPending: isCreatingUser } = trpc.admin.users.createUser.useMutation();
+  const utils = trpc.useUtils();
+
   // Debounce search
   useState(() => {
     const handler = setTimeout(() => {
@@ -56,6 +65,21 @@ export default function UsersPage() {
       setRevealedEmails((prev) => ({ ...prev, [userId]: res.email }));
     } catch (e) {
       alert("Failed to reveal email");
+    }
+  };
+
+  const handleCreateUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await createUser({ name: newUserName, email: newUserEmail, plan: newUserPlan });
+      setCreatedAccountInfo({ email: newUserEmail, tempPassword: res.tempPassword });
+      utils.admin.users.listUsers.invalidate();
+
+      setNewUserName("");
+      setNewUserEmail("");
+      setNewUserPlan("FREE");
+    } catch (err: any) {
+      alert(err.message || "Failed to create user");
     }
   };
 
@@ -175,7 +199,10 @@ export default function UsersPage() {
             <option value="PRO">Plan: PRO</option>
           </select>
         </div>
-        <button className="admin-btn admin-btn--primary">
+        <button
+          className="admin-btn admin-btn--primary"
+          onClick={() => setIsAddModalOpen(true)}
+        >
           <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person_add</span>
           New User
         </button>
@@ -188,7 +215,7 @@ export default function UsersPage() {
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                   <th key={header.id}>
+                  <th key={header.id}>
                     {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
                   </th>
                 ))}
@@ -237,6 +264,99 @@ export default function UsersPage() {
           </div>
         </div>
       </div>
+
+      {/* Add User Modal */}
+      {isAddModalOpen && (
+        <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+          <div className="admin-card" style={{ width: "100%", maxWidth: 450, padding: 24, boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+              <h2 style={{ margin: 0, fontSize: 18 }}>Add New User</h2>
+              <button
+                className="admin-btn admin-btn--ghost admin-btn--sm"
+                onClick={() => { setIsAddModalOpen(false); setCreatedAccountInfo(null); }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 20 }}>close</span>
+              </button>
+            </div>
+
+            {createdAccountInfo ? (
+              <div>
+                <div style={{ padding: 16, background: "rgba(0,255,100,0.1)", border: "1px solid var(--admin-success)", borderRadius: 8, marginBottom: 20 }}>
+                  <p style={{ margin: "0 0 10px", color: "var(--admin-success)", fontWeight: 600 }}>User created successfully!</p>
+                  <p style={{ margin: 0, fontSize: 13, color: "var(--admin-text)" }}>
+                    <strong>Email:</strong> {createdAccountInfo.email}<br />
+                    <strong>Temporary Password:</strong> <code style={{ userSelect: "all", background: "rgba(0,0,0,0.2)", padding: "2px 6px", borderRadius: 4, display: "inline-block", margin: "4px 0" }}>{createdAccountInfo.tempPassword}</code>
+                  </p>
+                  <p style={{ margin: "10px 0 0", fontSize: 12, color: "var(--admin-text-muted)", lineHeight: 1.4 }}>
+                    Please save this password and share it securely with the user. They will use it to log in.
+                  </p>
+                </div>
+                <button
+                  className="admin-btn admin-btn--secondary"
+                  style={{ width: "100%", justifyContent: "center" }}
+                  onClick={() => { setIsAddModalOpen(false); setCreatedAccountInfo(null); }}
+                >
+                  Close
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={handleCreateUser} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div>
+                  <label style={{ display: "block", fontSize: 13, marginBottom: 6, color: "var(--admin-text-muted)" }}>Full Name</label>
+                  <input
+                    type="text"
+                    required
+                    value={newUserName}
+                    onChange={e => setNewUserName(e.target.value)}
+                    className="admin-input"
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--admin-border)", background: "var(--admin-surface-hover)", color: "var(--admin-text)" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 13, marginBottom: 6, color: "var(--admin-text-muted)" }}>Email Address</label>
+                  <input
+                    type="email"
+                    required
+                    value={newUserEmail}
+                    onChange={e => setNewUserEmail(e.target.value)}
+                    className="admin-input"
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--admin-border)", background: "var(--admin-surface-hover)", color: "var(--admin-text)" }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: 13, marginBottom: 6, color: "var(--admin-text-muted)" }}>Subscription Plan</label>
+                  <select
+                    value={newUserPlan}
+                    onChange={e => setNewUserPlan(e.target.value as any)}
+                    className="admin-select"
+                    style={{ width: "100%", padding: "8px 12px", borderRadius: 6, border: "1px solid var(--admin-border)", background: "var(--admin-surface-hover)", color: "var(--admin-text)" }}
+                  >
+                    <option value="FREE">FREE</option>
+                    <option value="PRO">PRO</option>
+                  </select>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 12, marginTop: 8 }}>
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn--ghost"
+                    onClick={() => setIsAddModalOpen(false)}
+                    disabled={isCreatingUser}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="admin-btn admin-btn--primary"
+                    disabled={isCreatingUser}
+                  >
+                    {isCreatingUser ? "Creating..." : "Create User"}
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

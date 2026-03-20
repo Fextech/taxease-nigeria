@@ -8,7 +8,11 @@ export async function POST(request: Request) {
     }
 
     try {
-        const PARSER_URL = process.env.PARSER_URL || 'http://127.0.0.1:8000';
+        let PARSER_URL = process.env.PARSER_URL || 'http://127.0.0.1:8000';
+        // Ensure the URL has a scheme
+        if (!PARSER_URL.startsWith('http://') && !PARSER_URL.startsWith('https://')) {
+            PARSER_URL = `https://${PARSER_URL}`;
+        }
         
         // Proxy the exact headers (importantly: content-type with its auto-generated boundary) 
         // and the exact body stream directly to FastAPI.
@@ -23,7 +27,8 @@ export async function POST(request: Request) {
                 },
                 body: request.body, // Pass the raw ReadableStream
                 // @ts-ignore - Required for Node.js fetch when streaming request bodies
-                duplex: 'half'
+                duplex: 'half',
+                signal: AbortSignal.timeout(15000),
             });
         } catch (fetchErr) {
             console.warn('[statements/check] Parser service offline, validation failed:', fetchErr);

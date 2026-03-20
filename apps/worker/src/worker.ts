@@ -42,7 +42,10 @@ function getResendClient(): Resend {
 
 const FROM_EMAIL = process.env.EMAIL_FROM || "Banklens Nigeria <onboarding@resend.dev>";
 
-const PARSER_URL = process.env.PARSER_URL || 'http://localhost:8000';
+let PARSER_URL = process.env.PARSER_URL || 'http://localhost:8000';
+if (!PARSER_URL.startsWith('http://') && !PARSER_URL.startsWith('https://')) {
+    PARSER_URL = `https://${PARSER_URL}`;
+}
 
 const prisma = new PrismaClient();
 

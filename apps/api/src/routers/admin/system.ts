@@ -26,10 +26,10 @@ const s3 = new S3Client({
     },
 });
 
-async function pingUrl(url: string, method = 'GET'): Promise<{ status: string, ping: number }> {
+async function pingUrl(url: string, method = 'GET', headers?: Record<string, string>): Promise<{ status: string, ping: number }> {
     const start = Date.now();
     try {
-        const res = await fetch(url, { method, headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` } });
+        const res = await fetch(url, { method, headers, signal: AbortSignal.timeout(10000) });
         return { status: res.status < 500 ? 'operational' : 'degraded', ping: Date.now() - start };
     } catch {
         return { status: 'down', ping: Date.now() - start };
@@ -66,17 +66,23 @@ export const adminSystemRouter = router({
         try {
             await s3.send(new HeadBucketCommand({ Bucket: process.env.AWS_S3_BUCKET_NAME || 'banklens-statements-dev' }));
             statuses.push({ id: 's3', name: 'AWS S3', status: 'operational', ping: Date.now() - s3Start, type: 'infrastructure' });
-        } catch {
-            statuses.push({ id: 's3', name: 'AWS S3', status: 'down', ping: Date.now() - s3Start, type: 'infrastructure' });
+        } catch (err: any) {
+            // Auth / permission errors (403, 401) mean S3 is reachable but creds are wrong
+            const httpStatus = err?.$metadata?.httpStatusCode;
+            const s3Status = httpStatus && httpStatus < 500 ? 'degraded' : 'down';
+            statuses.push({ id: 's3', name: 'AWS S3', status: s3Status, ping: Date.now() - s3Start, type: 'infrastructure' });
         }
 
         // 4. Parser API
-        const parserUrl = process.env.PARSER_URL || 'http://localhost:8000';
-        const parserPing = await pingUrl(parserUrl + '/docs');
+        let parserUrl = process.env.PARSER_URL || 'http://localhost:8000';
+        if (!parserUrl.startsWith('http://') && !parserUrl.startsWith('https://')) {
+            parserUrl = `https://${parserUrl}`;
+        }
+        const parserPing = await pingUrl(parserUrl + '/health');
         statuses.push({ id: 'parser', name: 'Python Parser', status: parserPing.status, ping: parserPing.ping, type: 'core' });
 
         // 5. Paystack API
-        const paystackPing = await pingUrl('https://api.paystack.co/transaction');
+        const paystackPing = await pingUrl('https://api.paystack.co/transaction', 'GET', { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` });
         statuses.push({ id: 'paystack', name: 'Paystack API', status: paystackPing.status, ping: paystackPing.ping, type: 'external' });
 
         // 6. Resend
