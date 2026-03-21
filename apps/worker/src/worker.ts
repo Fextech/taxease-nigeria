@@ -330,6 +330,8 @@ const parseStatementWorker = new Worker(
         concurrency: 3,
         lockDuration: 600_000,
         lockRenewTime: 300_000,
+        removeOnComplete: { count: 100 },
+        removeOnFail: { count: 50 },
     }
 );
 
@@ -441,7 +443,12 @@ const generateReportWorker = new Worker(
             throw error;
         }
     },
-    { connection: redisConnection, concurrency: 2 }
+    {
+        connection: redisConnection,
+        concurrency: 2,
+        removeOnComplete: { count: 100 },
+        removeOnFail: { count: 50 },
+    }
 );
 
 // ─── Graceful shutdown ──────────────────────────────────

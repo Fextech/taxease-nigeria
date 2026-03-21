@@ -13,6 +13,8 @@ const s3 = new S3Client({
         accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
         secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
     },
+    requestChecksumCalculation: "WHEN_REQUIRED",
+    responseChecksumValidation: "WHEN_REQUIRED",
 });
 
 /**
@@ -47,7 +49,6 @@ export async function POST(request: Request) {
             if (workspace.status === 'LOCKED') {
                 return NextResponse.json({ error: 'Workspace is locked' }, { status: 403 });
             }
-
 
             // Check how many statements already exist for this month
             const existingCount = await prisma.statement.count({
@@ -133,11 +134,17 @@ export async function POST(request: Request) {
             // Enqueue job for background worker
             try {
                 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+                const parsedUrl = new URL(REDIS_URL);
                 const { Queue } = await import('bullmq');
+
                 const parseStatementQueue = new Queue('parse-statement', {
                     connection: {
-                        host: new URL(REDIS_URL).hostname || 'localhost',
-                        port: Number(new URL(REDIS_URL).port) || 6379,
+                        host: parsedUrl.hostname,
+                        port: Number(parsedUrl.port) || 6379,
+                        password: parsedUrl.password || undefined,
+                        tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
+                        maxRetriesPerRequest: null,
+                        enableReadyCheck: false,
                     },
                 });
 
@@ -159,9 +166,9 @@ export async function POST(request: Request) {
 
         } else if (action === 'list') {
             const statements = await prisma.statement.findMany({
-                where: { 
+                where: {
                     workspaceId: data.workspaceId,
-                    deletedAt: null 
+                    deletedAt: null
                 },
                 orderBy: [
                     { month: 'asc' },
