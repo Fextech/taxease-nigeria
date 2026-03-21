@@ -93,7 +93,10 @@ export async function POST(request: Request) {
                 ContentType: data.mimeType,
             });
 
-            const uploadUrl = await getSignedUrl(s3, command, { expiresIn: URL_EXPIRY });
+            const uploadUrl = await getSignedUrl(s3, command, {
+                expiresIn: URL_EXPIRY,
+                signableHeaders: new Set(['content-type']),
+            });
 
             return NextResponse.json({ uploadUrl, s3Key });
 
