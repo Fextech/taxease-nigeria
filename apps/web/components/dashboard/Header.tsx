@@ -15,6 +15,10 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
   const [isCreating, setIsCreating] = useState(false);
   const [notifications, setNotifications] = useState<any[]>([]);
 
+  // Create Workspace Modal State
+  const [createYearOpen, setCreateYearOpen] = useState(false);
+  const [newTaxYear, setNewTaxYear] = useState(new Date().getFullYear().toString());
+
   // Support Modal State
   const [supportOpen, setSupportOpen] = useState(false);
   const [supportSubject, setSupportSubject] = useState("");
@@ -92,8 +96,9 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
 
   const router = useRouter();
 
-  const handleCreateWorkspace = async () => {
-    const yearStr = prompt("Enter Tax Year (e.g. 2024):", new Date().getFullYear().toString());
+  const handleCreateWorkspace = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const yearStr = newTaxYear;
     if (!yearStr) return;
     const year = parseInt(yearStr, 10);
     if (isNaN(year) || year < 2020 || year > 2030) {
@@ -115,6 +120,7 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
         setActiveWorkspaceId(data.id);
         setWorkspaceOpen(false);
         showToast(`Tax Year ${year} workspace created!`, "success");
+        setCreateYearOpen(false);
         router.refresh(); // Force Next.js to drop its router cache
       } else {
         const err = await res.json();
@@ -229,11 +235,14 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
                 <div className="dash-dropdown-divider" />
                 <button
                   className="ws-dropdown-item ws-dropdown-item--action"
-                  onClick={handleCreateWorkspace}
+                  onClick={() => {
+                    setWorkspaceOpen(false);
+                    setCreateYearOpen(true);
+                  }}
                   disabled={isCreating}
                 >
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>add</span>
-                  {isCreating ? "Adding..." : "Add New Year"}
+                  Add New Year
                 </button>
               </div>
             )}
@@ -444,6 +453,58 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
                   disabled={isSubmittingSupport}
                 >
                   {isSubmittingSupport ? "Submitting..." : "Submit request"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Create Workspace Modal */}
+      {createYearOpen && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: "400px" }}>
+            <div className="modal-header">
+              <span className="material-symbols-outlined" style={{ fontSize: 24, color: "var(--te-primary)" }}>calendar_add_on</span>
+              <h3 className="modal-title">Add New Tax Year</h3>
+            </div>
+            <p className="modal-desc" style={{ marginBottom: "20px" }}>
+              Enter the tax year you want to create a workspace for. Valid between 2020 and 2030.
+            </p>
+            
+            <form onSubmit={handleCreateWorkspace} style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              <div>
+                <label style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "var(--te-text-secondary)", marginBottom: "6px" }}>
+                  Tax Year
+                </label>
+                <input
+                  type="number"
+                  className="modal-input"
+                  placeholder="e.g. 2024"
+                  value={newTaxYear}
+                  onChange={(e) => setNewTaxYear(e.target.value)}
+                  disabled={isCreating}
+                  min={2020}
+                  max={2030}
+                  required
+                />
+              </div>
+
+              <div className="modal-actions" style={{ marginTop: "8px" }}>
+                <button
+                  type="button"
+                  className="modal-btn-cancel"
+                  onClick={() => setCreateYearOpen(false)}
+                  disabled={isCreating}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="modal-btn-confirm"
+                  disabled={isCreating}
+                >
+                  {isCreating ? "Adding..." : "Add Tax Year"}
                 </button>
               </div>
             </form>

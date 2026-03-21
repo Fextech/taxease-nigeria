@@ -3,14 +3,459 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
-// ─────────────────────────────────────────────
-// ENUMS
-// ─────────────────────────────────────────────
+model User {
+  id                      String         @id @default(cuid())
+  email                   String         @unique
+  emailVerified           DateTime?
+  image                   String?
+  phone                   String?
+  professionalCategory    String?
+  plan                    UserPlan       @default(FREE)
+  mfaEnabled              Boolean        @default(false)
+  totpSecret              String?
+  totpVerified            Boolean        @default(false)
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
+  deletedAt               DateTime?
+  name                    String?
+  password                String?
+  isSuspended             Boolean        @default(false)
+  stateOfResidence        String?
+  taxIdentificationNumber String?
+  accounts                Account[]
+  auditLogs               AuditLog[]
+  delegationsReceived     Delegation[]   @relation("DelegationDelegate")
+  delegationsGiven        Delegation[]   @relation("DelegationOwner")
+  notifications           Notification[]
+  sessions                Session[]
+  subscription            Subscription?
+  workspaces              Workspace[]
+
+  @@index([email])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model PasswordResetToken {
+  id      String   @id @default(cuid())
+  email   String
+  token   String   @unique
+  expires DateTime
+
+  @@index([email])
+}
+
+model Workspace {
+  id                   String           @id @default(cuid())
+  userId               String
+  taxYear              Int
+  status               TaxYearStatus    @default(ACTIVE)
+  totalIncome          BigInt           @default(0)
+  totalTaxableIncome   BigInt           @default(0)
+  totalTaxLiability    BigInt           @default(0)
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+  additionalDeductions Json?
+  allowedBanksCount    Int              @default(1)
+  annualRentAmount     BigInt?
+  deletedAt            DateTime?
+  isUnlocked           Boolean          @default(false)
+  statementCredits     Int              @default(0)
+  unlockMethod         String?
+  unlockedMonths       Json?
+  creditPurchases      CreditPurchase[]
+  delegations          Delegation[]
+  statements           Statement[]
+  user                 User             @relation(fields: [userId], references: [id])
+
+  @@unique([userId, taxYear])
+  @@index([userId])
+}
+
+model Statement {
+  id               String          @id @default(cuid())
+  workspaceId      String
+  month            Int
+  bankName         String?
+  originalFilename String
+  s3Key            String
+  mimeType         String
+  fileHash         String?
+  parseStatus      StatementStatus @default(UPLOADED)
+  confidenceScore  Float?
+  rowCount         Int?
+  errorMessage     String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  bankAccountLabel String?
+  deletedAt        DateTime?
+  workspace        Workspace       @relation(fields: [workspaceId], references: [id])
+  transactions     Transaction[]
+
+  @@unique([workspaceId, month, bankAccountLabel])
+  @@unique([workspaceId, fileHash])
+  @@index([workspaceId])
+}
+
+model Transaction {
+  id              String      @id @default(cuid())
+  statementId     String
+  transactionDate DateTime
+  valueDate       DateTime?
+  description     String
+  debitAmount     BigInt      @default(0)
+  creditAmount    BigInt      @default(0)
+  balance         BigInt?
+  reference       String?
+  channel         String?
+  confidence      Float?
+  isManualEntry   Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  deletedAt       DateTime?
+  annotation      Annotation?
+  statement       Statement   @relation(fields: [statementId], references: [id])
+
+  @@index([statementId])
+  @@index([transactionDate])
+}
+
+model Annotation {
+  id                String           @id @default(cuid())
+  transactionId     String           @unique
+  taxableStatus     TaxableStatus    @default(NO)
+  taxableAmount     BigInt?
+  taxCategory       TaxCategory      @default(UNCLASSIFIED)
+  reason            String?
+  reliefType        String?
+  computedLiability BigInt           @default(0)
+  status            AnnotationStatus @default(UNANNOTATED)
+  notes             String?
+  supportDocS3Key   String?
+  aiSuggested       Boolean          @default(false)
+  aiConfidence      Float?
+  annotatedBy       String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  deletedAt         DateTime?
+  transaction       Transaction      @relation(fields: [transactionId], references: [id])
+}
+
+model Delegation {
+  id          String         @id @default(cuid())
+  workspaceId String
+  ownerId     String
+  delegateId  String
+  role        DelegationRole
+  expiresAt   DateTime?
+  createdAt   DateTime       @default(now())
+  delegate    User           @relation("DelegationDelegate", fields: [delegateId], references: [id])
+  owner       User           @relation("DelegationOwner", fields: [ownerId], references: [id])
+  workspace   Workspace      @relation(fields: [workspaceId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String
+  entityType String
+  entityId   String
+  action     String
+  oldValue   Json?
+  newValue   Json?
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  message   String
+  type      String    @default("INFO")
+  link      String?
+  isRead    Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Subscription {
+  id                       String    @id @default(cuid())
+  userId                   String    @unique
+  plan                     UserPlan
+  status                   String
+  paystackCustomerCode     String?
+  paystackSubscriptionCode String?
+  billingCycleStart        DateTime?
+  billingCycleEnd          DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+  user                     User      @relation(fields: [userId], references: [id])
+}
+
+model CreditPurchase {
+  id          String    @id @default(cuid())
+  workspaceId String
+  credits     Int
+  amountPaid  BigInt
+  paystackRef String?   @unique
+  createdAt   DateTime  @default(now())
+  workspace   Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([workspaceId])
+}
+
+model PaystackTransaction {
+  id           String   @id @default(cuid())
+  userId       String
+  reference    String   @unique
+  amount       BigInt
+  currency     String   @default("NGN")
+  status       String
+  type         String
+  metadata     Json?
+  paystackData Json?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+  @@index([reference])
+}
+
+model AdminUser {
+  id              String           @id @default(cuid())
+  email           String           @unique
+  passwordHash    String
+  fullName        String
+  role            AdminRole        @default(SUPPORT_AGENT)
+  totpSecret      String?
+  totpEnrolled    Boolean          @default(false)
+  knownDevices    Json?
+  isActive        Boolean          @default(true)
+  lastLoginAt     DateTime?
+  failedAttempts  Int              @default(0)
+  lockedUntil     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  deletedAt       DateTime?
+  auditLogs       AdminAuditLog[]
+  sessions        AdminSession[]
+  broadcasts      Broadcast[]
+  ticketMessages  SupportMessage[]
+  ticketsAssigned SupportTicket[]  @relation("TicketAssignee")
+
+  @@index([email])
+}
+
+model AdminSession {
+  id                String    @id @default(cuid())
+  adminId           String
+  token             String    @unique
+  refreshToken      String?   @unique
+  ipAddress         String?
+  userAgent         String?
+  deviceFingerprint String?
+  expiresAt         DateTime
+  lastActiveAt      DateTime  @default(now())
+  revokedAt         DateTime?
+  createdAt         DateTime  @default(now())
+  admin             AdminUser @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([adminId])
+  @@index([token])
+}
+
+model AdminAuditLog {
+  id            String     @id @default(cuid())
+  adminId       String?
+  adminEmail    String?
+  adminRole     String?
+  actionCode    String
+  targetEntity  String?
+  previousValue Json?
+  newValue      Json?
+  ipAddress     String?
+  userAgent     String?
+  metadata      Json?
+  createdAt     DateTime   @default(now())
+  admin         AdminUser? @relation(fields: [adminId], references: [id])
+
+  @@index([adminId])
+  @@index([actionCode])
+  @@index([createdAt])
+  @@index([targetEntity])
+}
+
+model Broadcast {
+  id              String               @id @default(cuid())
+  createdById     String
+  subject         String
+  body            String
+  channel         BroadcastChannel
+  status          BroadcastStatus      @default(DRAFT)
+  segmentType     String
+  segmentConfig   Json?
+  scheduledAt     DateTime?
+  sentAt          DateTime?
+  totalRecipients Int                  @default(0)
+  delivered       Int                  @default(0)
+  failed          Int                  @default(0)
+  opened          Int                  @default(0)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  createdBy       AdminUser            @relation(fields: [createdById], references: [id])
+  recipients      BroadcastRecipient[]
+
+  @@index([createdById])
+  @@index([status])
+  @@index([scheduledAt])
+}
+
+model BroadcastRecipient {
+  id          String           @id @default(cuid())
+  broadcastId String
+  userId      String
+  channel     BroadcastChannel
+  deliveredAt DateTime?
+  openedAt    DateTime?
+  failedAt    DateTime?
+  failReason  String?
+  createdAt   DateTime         @default(now())
+  broadcast   Broadcast        @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  @@index([broadcastId])
+  @@index([userId])
+}
+
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  subject   String
+  body      String
+  category  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model FeatureFlag {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  description String?
+  isEnabled   Boolean  @default(false)
+  metadata    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model AppConfig {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedBy   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SupportTicket {
+  id          String           @id @default(cuid())
+  userId      String
+  assigneeId  String?
+  subject     String
+  category    TicketCategory
+  priority    TicketPriority   @default(MEDIUM)
+  status      TicketStatus     @default(OPEN)
+  slaDeadline DateTime?
+  resolvedAt  DateTime?
+  closedAt    DateTime?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  messages    SupportMessage[]
+  assignee    AdminUser?       @relation("TicketAssignee", fields: [assigneeId], references: [id])
+
+  @@index([userId])
+  @@index([assigneeId])
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+}
+
+model SupportMessage {
+  id          String        @id @default(cuid())
+  ticketId    String
+  senderId    String
+  senderType  String
+  adminId     String?
+  body        String
+  isInternal  Boolean       @default(false)
+  attachments Json?
+  createdAt   DateTime      @default(now())
+  admin       AdminUser?    @relation(fields: [adminId], references: [id])
+  ticket      SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+model CannedResponse {
+  id        String   @id @default(cuid())
+  title     String
+  body      String
+  category  String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
 
 enum TaxYearStatus {
   ACTIVE
@@ -60,299 +505,6 @@ enum DelegationRole {
   VIEWER
 }
 
-// ─────────────────────────────────────────────
-// MODELS
-// ─────────────────────────────────────────────
-
-model User {
-  id                   String       @id @default(cuid())
-  email                String       @unique
-  emailVerified        DateTime?
-  name                 String?
-  image                String?
-  password             String?      // Hashed; null for OAuth-only users
-  phone                String?
-  taxIdentificationNumber String?
-  professionalCategory String?
-  stateOfResidence     String?      // Nigerian state for IRS portal link
-  plan                 UserPlan     @default(FREE)
-
-  // MFA (TOTP)
-  mfaEnabled           Boolean      @default(false)
-  totpSecret           String?      // Encrypted TOTP secret
-  totpVerified         Boolean      @default(false)
-
-  isSuspended          Boolean      @default(false)
-
-  createdAt            DateTime     @default(now())
-  updatedAt            DateTime     @updatedAt
-  deletedAt            DateTime?
-
-  accounts             Account[]
-  sessions             Session[]
-  workspaces           Workspace[]
-  delegationsGiven     Delegation[] @relation("DelegationOwner")
-  delegationsReceived  Delegation[] @relation("DelegationDelegate")
-  auditLogs            AuditLog[]
-  notifications        Notification[]
-  subscription         Subscription?
-
-  @@index([email])
-}
-
-model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String? @db.Text
-  access_token      String? @db.Text
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String? @db.Text
-  session_state     String?
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-  @@index([userId])
-}
-
-model Session {
-  id           String   @id @default(cuid())
-  sessionToken String   @unique
-  userId       String
-  expires      DateTime
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-model VerificationToken {
-  identifier String
-  token      String   @unique
-  expires    DateTime
-
-  @@unique([identifier, token])
-}
-
-model PasswordResetToken {
-  id      String   @id @default(cuid())
-  email   String
-  token   String   @unique
-  expires DateTime
-
-  @@index([email])
-}
-
-model Workspace {
-  id                 String          @id @default(cuid())
-  userId             String
-  taxYear            Int
-  status             TaxYearStatus   @default(ACTIVE)
-  totalIncome        BigInt          @default(0)   // Stored in kobo
-  totalTaxableIncome BigInt          @default(0)
-  totalTaxLiability  BigInt          @default(0)
-
-  // ── Billing / Credits ─────────────────────────────────
-  isUnlocked         Boolean         @default(false)  // false = free tier (3 months)
-  allowedBanksCount  Int             @default(1)       // 1 for free, upgradeable
-  statementCredits   Int             @default(0)       // starts at 0; earned via purchase or admin gift
-  unlockedMonths     Json?                              // Array of month numbers [4,5,6..] unlocked via credit
-  unlockMethod       String?                            // null = not chosen, "FULL" = paid full year, "CREDIT" = per-month credits
-
-  // ── Tax Data ──────────────────────────────────────────
-  annualRentAmount   BigInt?         // Annual rent paid (kobo) — used for 2026+ rent relief
-  additionalDeductions Json?         // Array of { label: string, amount: string } for manual deductions
-
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  deletedAt          DateTime?
-
-  user               User            @relation(fields: [userId], references: [id])
-  statements         Statement[]
-  delegations        Delegation[]
-  creditPurchases    CreditPurchase[]
-
-  @@unique([userId, taxYear])
-  @@index([userId])
-}
-
-model Statement {
-  id               String          @id @default(cuid())
-  workspaceId      String
-  month            Int             // 1-12
-  bankName         String?
-  bankAccountLabel String?         // e.g. "GTBank - Savings" to distinguish accounts
-  originalFilename String
-  s3Key            String
-  mimeType         String
-  fileHash         String?         // SHA-256 hash for duplicate detection
-  parseStatus      StatementStatus @default(UPLOADED)
-  confidenceScore  Float?
-  rowCount         Int?
-  errorMessage     String?
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
-  deletedAt        DateTime?
-
-  workspace        Workspace       @relation(fields: [workspaceId], references: [id])
-  transactions     Transaction[]
-
-  @@unique([workspaceId, month, bankAccountLabel])  // one statement per month per bank account
-  @@unique([workspaceId, fileHash])                 // prevent duplicate file uploads
-  @@index([workspaceId])
-}
-
-model Transaction {
-  id              String      @id @default(cuid())
-  statementId     String
-  transactionDate DateTime
-  valueDate       DateTime?
-  description     String
-  debitAmount     BigInt      @default(0)   // Stored in kobo
-  creditAmount    BigInt      @default(0)
-  balance         BigInt?
-  reference       String?
-  channel         String?
-  confidence      Float?
-  isManualEntry   Boolean     @default(false)
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  deletedAt       DateTime?
-
-  statement       Statement   @relation(fields: [statementId], references: [id])
-  annotation      Annotation?
-
-  @@index([statementId])
-  @@index([transactionDate])
-}
-
-model Annotation {
-  id                String           @id @default(cuid())
-  transactionId     String           @unique
-  taxableStatus     TaxableStatus    @default(NO)
-  taxableAmount     BigInt?          // In kobo; null = full credit amount
-  taxCategory       TaxCategory      @default(UNCLASSIFIED)
-  reason            String?
-  reliefType        String?
-  computedLiability BigInt           @default(0)
-  status            AnnotationStatus @default(UNANNOTATED)
-  notes             String?
-  supportDocS3Key   String?          // Supporting document
-  aiSuggested       Boolean          @default(false)
-  aiConfidence      Float?
-  annotatedBy       String?          // userId
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  deletedAt         DateTime?
-
-  transaction       Transaction      @relation(fields: [transactionId], references: [id])
-}
-
-model Delegation {
-  id              String         @id @default(cuid())
-  workspaceId     String
-  ownerId         String
-  delegateId      String
-  role            DelegationRole
-  expiresAt       DateTime?
-  createdAt       DateTime       @default(now())
-
-  workspace       Workspace      @relation(fields: [workspaceId], references: [id])
-  owner           User           @relation("DelegationOwner", fields: [ownerId], references: [id])
-  delegate        User           @relation("DelegationDelegate", fields: [delegateId], references: [id])
-}
-
-model AuditLog {
-  id          String   @id @default(cuid())
-  userId      String
-  entityType  String
-  entityId    String
-  action      String
-  oldValue    Json?
-  newValue    Json?
-  ipAddress   String?
-  userAgent   String?
-  createdAt   DateTime @default(now())
-
-  user        User     @relation(fields: [userId], references: [id])
-
-  @@index([userId])
-  @@index([entityType, entityId])
-  @@index([createdAt])
-}
-
-model Notification {
-  id          String   @id @default(cuid())
-  userId      String
-  title       String
-  message     String
-  type        String   @default("INFO") // INFO, SUCCESS, ERROR, WARNING
-  link        String?
-  isRead      Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  deletedAt   DateTime?
-
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([createdAt])
-}
-
-model Subscription {
-  id                       String   @id @default(cuid())
-  userId                   String   @unique
-  plan                     UserPlan
-  status                   String
-  paystackCustomerCode     String?
-  paystackSubscriptionCode String?
-  billingCycleStart        DateTime?
-  billingCycleEnd          DateTime?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
-
-  user                     User     @relation(fields: [userId], references: [id])
-}
-
-model CreditPurchase {
-  id              String   @id @default(cuid())
-  workspaceId     String
-  credits         Int                // number of credits purchased
-  amountPaid      BigInt             // kobo
-  paystackRef     String?  @unique   // Paystack transaction reference
-  createdAt       DateTime @default(now())
-
-  workspace       Workspace @relation(fields: [workspaceId], references: [id])
-
-  @@index([workspaceId])
-}
-
-model PaystackTransaction {
-  id              String   @id @default(cuid())
-  userId          String
-  reference       String   @unique   // Paystack transaction reference
-  amount          BigInt             // kobo
-  currency        String   @default("NGN")
-  status          String             // success, failed, pending
-  type            String             // workspace_unlock, credit_purchase, bank_addon
-  metadata        Json?              // extra context (workspaceId, credits, etc.)
-  paystackData    Json?              // raw Paystack webhook payload
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([userId])
-  @@index([reference])
-}
-
-// ─────────────────────────────────────────────
-// ADMIN PANEL ENUMS
-// ─────────────────────────────────────────────
-
 enum AdminRole {
   SUPER_ADMIN
   OPERATIONS_ADMIN
@@ -397,219 +549,4 @@ enum TicketCategory {
   FILING_QUESTION
   FEATURE_REQUEST
   OTHER
-}
-
-// ─────────────────────────────────────────────
-// ADMIN PANEL MODELS
-// ─────────────────────────────────────────────
-
-model AdminUser {
-  id           String     @id @default(cuid())
-  email        String     @unique
-  passwordHash String                          // bcrypt hash
-  fullName     String
-  role         AdminRole  @default(SUPPORT_AGENT)
-
-  // TOTP (mandatory)
-  totpSecret     String?   // Encrypted; null until enrolled
-  totpEnrolled   Boolean   @default(false)
-
-  // Device fingerprinting
-  knownDevices   Json?     // Array of { fingerprint, userAgent, ip, lastSeen }
-
-  isActive       Boolean   @default(true)
-  lastLoginAt    DateTime?
-  failedAttempts Int       @default(0)
-  lockedUntil    DateTime?
-
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  deletedAt      DateTime?
-
-  sessions       AdminSession[]
-  auditLogs      AdminAuditLog[]
-  broadcasts     Broadcast[]
-  ticketsAssigned SupportTicket[]      @relation("TicketAssignee")
-  ticketMessages  SupportMessage[]
-
-  @@index([email])
-}
-
-model AdminSession {
-  id           String     @id @default(cuid())
-  adminId      String
-  token        String     @unique              // JWT token hash
-  refreshToken String?    @unique
-  ipAddress    String?
-  userAgent    String?
-  deviceFingerprint String?
-  expiresAt    DateTime
-  lastActiveAt DateTime   @default(now())
-  revokedAt    DateTime?
-
-  createdAt    DateTime   @default(now())
-
-  admin        AdminUser  @relation(fields: [adminId], references: [id], onDelete: Cascade)
-
-  @@index([adminId])
-  @@index([token])
-}
-
-model AdminAuditLog {
-  id           String     @id @default(cuid())
-  adminId      String?                          // null for system-generated entries
-  adminEmail   String?                          // Denormalized for retention
-  adminRole    String?
-  actionCode   String                           // e.g. USER_SUSPENDED, BROADCAST_SENT
-  targetEntity String?                          // e.g. "User:cuid123"
-  previousValue Json?
-  newValue      Json?
-  ipAddress    String?
-  userAgent    String?
-  metadata     Json?                            // Any extra context
-
-  createdAt    DateTime   @default(now())       // INSERT-only, no updatedAt
-
-  admin        AdminUser? @relation(fields: [adminId], references: [id])
-
-  @@index([adminId])
-  @@index([actionCode])
-  @@index([createdAt])
-  @@index([targetEntity])
-}
-
-model Broadcast {
-  id           String            @id @default(cuid())
-  createdById  String
-  subject      String
-  body         String            @db.Text         // HTML content
-  channel      BroadcastChannel
-  status       BroadcastStatus   @default(DRAFT)
-
-  // Targeting
-  segmentType  String                             // all, subscribers, free, tax_year, manual
-  segmentConfig Json?                             // Filter criteria
-
-  scheduledAt  DateTime?
-  sentAt       DateTime?
-  totalRecipients Int            @default(0)
-  delivered    Int               @default(0)
-  failed       Int               @default(0)
-  opened       Int               @default(0)
-
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-
-  createdBy    AdminUser         @relation(fields: [createdById], references: [id])
-  recipients   BroadcastRecipient[]
-
-  @@index([createdById])
-  @@index([status])
-  @@index([scheduledAt])
-}
-
-model BroadcastRecipient {
-  id           String     @id @default(cuid())
-  broadcastId  String
-  userId       String
-  channel      BroadcastChannel
-  deliveredAt  DateTime?
-  openedAt     DateTime?
-  failedAt     DateTime?
-  failReason   String?
-
-  createdAt    DateTime   @default(now())
-
-  broadcast    Broadcast  @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
-
-  @@index([broadcastId])
-  @@index([userId])
-}
-
-model EmailTemplate {
-  id          String     @id @default(cuid())
-  name        String     @unique
-  subject     String
-  body        String     @db.Text
-  category    String?                           // welcome, notification, broadcast, system
-  isActive    Boolean    @default(true)
-
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-}
-
-model FeatureFlag {
-  id          String     @id @default(cuid())
-  key         String     @unique
-  description String?
-  isEnabled   Boolean    @default(false)
-  metadata    Json?                              // rollout %, user segments, etc.
-
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-}
-
-model AppConfig {
-  id          String     @id @default(cuid())
-  key         String     @unique
-  value       String     @db.Text
-  description String?
-  updatedBy   String?                            // AdminUser ID
-
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
-}
-
-model SupportTicket {
-  id           String          @id @default(cuid())
-  userId       String                              // End-user who submitted
-  assigneeId   String?                             // Admin assigned
-  subject      String
-  category     TicketCategory
-  priority     TicketPriority  @default(MEDIUM)
-  status       TicketStatus    @default(OPEN)
-  slaDeadline  DateTime?                           // auto-calculated from priority
-
-  resolvedAt   DateTime?
-  closedAt     DateTime?
-  createdAt    DateTime        @default(now())
-  updatedAt    DateTime        @updatedAt
-
-  assignee     AdminUser?      @relation("TicketAssignee", fields: [assigneeId], references: [id])
-  messages     SupportMessage[]
-
-  @@index([userId])
-  @@index([assigneeId])
-  @@index([status])
-  @@index([priority])
-  @@index([createdAt])
-}
-
-model SupportMessage {
-  id           String     @id @default(cuid())
-  ticketId     String
-  senderId     String                             // userId or adminId
-  senderType   String                             // "user" or "admin"
-  adminId      String?                            // Set if senderType = "admin"
-  body         String     @db.Text
-  isInternal   Boolean    @default(false)         // Internal notes (not visible to user)
-  attachments  Json?                              // [{filename, s3Key, mimeType}]
-
-  createdAt    DateTime   @default(now())
-
-  ticket       SupportTicket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  admin        AdminUser?    @relation(fields: [adminId], references: [id])
-
-  @@index([ticketId])
-}
-
-model CannedResponse {
-  id          String     @id @default(cuid())
-  title       String
-  body        String     @db.Text
-  category    String?                             // billing, parsing, general
-  isActive    Boolean    @default(true)
-
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
 }
