@@ -27,49 +27,98 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
             }
 
-            // 1. Tax Computation — Taxable Credits (Income)
-            const taxableAnnotations = await prisma.annotation.findMany({
-                where: {
-                    status: 'COMPLETE',
-                    taxableStatus: 'YES',
-                    transaction: {
-                        deletedAt: null,
+            const [
+                grossIncomeAggregate,
+                totalDBEAggregate,
+                groupedCreditsByStatement,
+                recentTxns,
+                statements,
+                totalTxnCount,
+                annotatedCount,
+            ] = await Promise.all([
+                prisma.transaction.aggregate({
+                    where: {
                         statement: { workspaceId: data.workspaceId, deletedAt: null },
+                        deletedAt: null,
+                        creditAmount: { gt: 0 },
+                        annotation: {
+                            is: {
+                                deletedAt: null,
+                                status: 'COMPLETE',
+                                taxableStatus: 'YES',
+                            },
+                        },
+                    },
+                    _sum: { creditAmount: true },
+                }),
+                prisma.transaction.aggregate({
+                    where: {
+                        statement: { workspaceId: data.workspaceId, deletedAt: null },
+                        deletedAt: null,
+                        debitAmount: { gt: 0 },
+                        annotation: {
+                            is: {
+                                deletedAt: null,
+                                status: 'COMPLETE',
+                                taxableStatus: 'YES',
+                            },
+                        },
+                    },
+                    _sum: { debitAmount: true },
+                }),
+                prisma.transaction.groupBy({
+                    by: ['statementId'],
+                    where: {
+                        statement: { workspaceId: data.workspaceId, deletedAt: null },
+                        deletedAt: null,
                         creditAmount: { gt: 0 },
                     },
-                },
-                select: {
-                    taxableStatus: true,
-                    taxableAmount: true,
-                    transaction: { select: { creditAmount: true } },
-                },
-            });
-
-            let grossIncome = BigInt(0);
-            for (const ann of taxableAnnotations) {
-                grossIncome += ann.transaction.creditAmount;
-            }
-
-            // 1b. Direct Business Expenses (taxable debits)
-            const dbeAnnotations = await prisma.annotation.findMany({
-                where: {
-                    status: 'COMPLETE',
-                    taxableStatus: 'YES',
-                    transaction: {
-                        deletedAt: null,
+                    _sum: { creditAmount: true },
+                }),
+                prisma.transaction.findMany({
+                    where: {
                         statement: { workspaceId: data.workspaceId, deletedAt: null },
-                        debitAmount: { gt: 0 },
+                        deletedAt: null,
                     },
-                },
-                select: {
-                    transaction: { select: { debitAmount: true } },
-                },
-            });
+                    orderBy: { transactionDate: 'desc' },
+                    take: 5,
+                    select: {
+                        id: true,
+                        transactionDate: true,
+                        description: true,
+                        creditAmount: true,
+                        debitAmount: true,
+                        annotation: {
+                            select: { taxableStatus: true, status: true },
+                        },
+                    },
+                }),
+                prisma.statement.findMany({
+                    where: {
+                        workspaceId: data.workspaceId,
+                        deletedAt: null,
+                    },
+                    select: { id: true, month: true, parseStatus: true },
+                }),
+                prisma.transaction.count({
+                    where: {
+                        statement: { workspaceId: data.workspaceId, deletedAt: null },
+                        deletedAt: null,
+                    },
+                }),
+                prisma.annotation.count({
+                    where: {
+                        status: 'COMPLETE',
+                        transaction: {
+                            deletedAt: null,
+                            statement: { workspaceId: data.workspaceId, deletedAt: null },
+                        },
+                    },
+                }),
+            ]);
 
-            let totalDBE = BigInt(0);
-            for (const ann of dbeAnnotations) {
-                totalDBE += ann.transaction.debitAmount;
-            }
+            const grossIncome = grossIncomeAggregate._sum.creditAmount ?? BigInt(0);
+            const totalDBE = totalDBEAggregate._sum.debitAmount ?? BigInt(0);
 
             // Net taxable = gross income - direct business expenses
             const netTaxableIncome = grossIncome > totalDBE ? grossIncome - totalDBE : BigInt(0);
@@ -91,23 +140,13 @@ export async function POST(request: Request) {
                 annualRentPaid,
             });
 
-            // 2. Monthly Distribution
-            const transactions = await prisma.transaction.findMany({
-                where: { 
-                    statement: { workspaceId: data.workspaceId, deletedAt: null },
-                    deletedAt: null,
-                },
-                select: {
-                    creditAmount: true,
-                    statement: { select: { month: true } },
-                },
-            });
-
             const monthlyIncome: Record<number, bigint> = {};
             for (let m = 1; m <= 12; m++) monthlyIncome[m] = BigInt(0);
-            for (const tx of transactions) {
-                if (tx.creditAmount > BigInt(0)) {
-                    monthlyIncome[tx.statement.month] += tx.creditAmount;
+            const statementMonthMap = new Map(statements.map((statement) => [statement.id, statement.month]));
+            for (const entry of groupedCreditsByStatement) {
+                const month = statementMonthMap.get(entry.statementId);
+                if (month && entry._sum.creditAmount) {
+                    monthlyIncome[month] += entry._sum.creditAmount;
                 }
             }
 
@@ -122,35 +161,7 @@ export async function POST(request: Request) {
                 pct: maxMonthly > BigInt(0) ? Number((amount * BigInt(100)) / maxMonthly) : 0,
             }));
 
-            // 3. Recent Transactions
-            const recentTxns = await prisma.transaction.findMany({
-                where: { 
-                    statement: { workspaceId: data.workspaceId, deletedAt: null },
-                    deletedAt: null,
-                },
-                orderBy: { transactionDate: 'desc' },
-                take: 5,
-                select: {
-                    id: true,
-                    transactionDate: true,
-                    description: true,
-                    creditAmount: true,
-                    debitAmount: true,
-                    annotation: {
-                        select: { taxableStatus: true, status: true },
-                    },
-                },
-            });
-
-            // 4. Compliance
-            const statements = await prisma.statement.findMany({
-                where: { 
-                    workspaceId: data.workspaceId,
-                    deletedAt: null,
-                },
-                select: { month: true, parseStatus: true },
-            });
-
+            // 3. Compliance
             const statementMonths = new Set(statements.map((s) => s.month));
             const quarters = [
                 { label: 'Q1 Statements', months: [1, 2, 3] },
@@ -163,23 +174,6 @@ export async function POST(request: Request) {
                 const uploaded = q.months.filter((m) => statementMonths.has(m)).length;
                 const status = uploaded === 3 ? 'FILED' : uploaded > 0 ? 'PENDING' : 'UPCOMING';
                 return { quarter: q.label, status, uploaded, total: 3 };
-            });
-
-            // 5. Stats
-            const totalTxnCount = await prisma.transaction.count({
-                where: { 
-                    statement: { workspaceId: data.workspaceId, deletedAt: null },
-                    deletedAt: null,
-                },
-            });
-            const annotatedCount = await prisma.annotation.count({
-                where: {
-                    status: 'COMPLETE',
-                    transaction: {
-                        deletedAt: null,
-                        statement: { workspaceId: data.workspaceId, deletedAt: null },
-                    },
-                },
             });
 
             return NextResponse.json({

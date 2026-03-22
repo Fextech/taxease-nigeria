@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
@@ -360,10 +361,10 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
                   <p className="dash-dropdown-email">{user?.email || ""}</p>
                 </div>
                 <div className="dash-dropdown-divider" />
-                <a href="/settings" className="dash-dropdown-item">
+                <Link href="/settings" className="dash-dropdown-item">
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person</span>
                   Account Settings
-                </a>
+                </Link>
                 <button className="dash-dropdown-item dash-dropdown-signout" onClick={() => signOut({ callbackUrl: "/sign-in" })}>
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>logout</span>
                   Sign out

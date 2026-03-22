@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { useSession } from "next-auth/react";
 import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 
@@ -244,7 +245,7 @@ export default function DashboardPage() {
               })}
             </div>
             {data.metrics.effectiveRate > 0 && (
-              <a href="/reports" className="view-report-btn">Complete Tax Report →</a>
+              <Link href="/reports" className="view-report-btn">Complete Tax Report →</Link>
             )}
           </div>
         </div>
@@ -253,7 +254,7 @@ export default function DashboardPage() {
         <div className="tx-card">
           <div className="tx-header">
             <h4 className="card-title">Recent Transactions</h4>
-            <a href="/annotations" className="tx-view-all">View All →</a>
+            <Link href="/annotations" className="tx-view-all">View All →</Link>
           </div>
 
           <div className="tx-table-wrap">

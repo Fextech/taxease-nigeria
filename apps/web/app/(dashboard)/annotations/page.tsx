@@ -42,9 +42,12 @@ interface Stats {
   pendingReview: number;
   totalIncomeKobo: string;
   totalDBEKobo: string;
+  monthCounts: Record<number, number>;
 }
 
 type Tab = "all" | "unannotated" | "completed";
+
+const PAGE_SIZE = 50;
 
 // helper: determine if a transaction row is a debit
 function isDebitTxn(t: TransactionRow): boolean {
@@ -96,6 +99,7 @@ export default function AnnotationsPage() {
   const [panelOpen, setPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
 
   // Annotation form state
   const [formStatus, setFormStatus] = useState<TaxableStatus>("YES");
@@ -104,32 +108,36 @@ export default function AnnotationsPage() {
   const [formCategory, setFormCategory] = useState<TaxCategory>("UNCLASSIFIED");
   const [formReason, setFormReason] = useState("");
 
-  const loadData = useCallback(async (wsId: string) => {
+  const loadStats = useCallback(async (wsId: string) => {
+    const statsRes = await fetch("/api/annotations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "stats", workspaceId: wsId }),
+    });
+
+    if (statsRes.ok) {
+      const statsData = await statsRes.json();
+      setStats(statsData);
+    }
+  }, []);
+
+  const loadTransactions = useCallback(async (wsId: string, page: number) => {
     setLoading(true);
     try {
-      const [txRes, statsRes] = await Promise.all([
-        fetch("/api/annotations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "list", workspaceId: wsId }),
-        }),
-        fetch("/api/annotations", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: "stats", workspaceId: wsId }),
-        }),
-      ]);
+      const txRes = await fetch("/api/annotations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "list", workspaceId: wsId, page, pageSize: PAGE_SIZE }),
+      });
 
       if (txRes.ok) {
         const txData = await txRes.json();
-        setTransactions(Array.isArray(txData) ? txData : []);
-      }
-      if (statsRes.ok) {
-        const statsData = await statsRes.json();
-        setStats(statsData);
+        setTransactions(Array.isArray(txData.items) ? txData.items : []);
+      } else {
+        setTransactions([]);
       }
     } catch {
-      // Silent fail
+      setTransactions([]);
     } finally {
       setLoading(false);
     }
@@ -138,12 +146,21 @@ export default function AnnotationsPage() {
   // Load workspace
   useEffect(() => {
     if (activeWorkspaceId) {
-      loadData(activeWorkspaceId);
+      setCurrentPage(1);
+      setSelectedTxn(null);
+      setPanelOpen(false);
+      void loadStats(activeWorkspaceId);
     } else {
       setTransactions([]);
       setStats(null);
     }
-  }, [activeWorkspaceId, loadData]);
+  }, [activeWorkspaceId, loadStats]);
+
+  useEffect(() => {
+    if (activeWorkspaceId) {
+      void loadTransactions(activeWorkspaceId, currentPage);
+    }
+  }, [activeWorkspaceId, currentPage, loadTransactions]);
 
 
 
@@ -197,9 +214,35 @@ export default function AnnotationsPage() {
       });
 
       if (res.ok) {
-        await loadData(activeWorkspaceId);
+        const savedAnnotation = await res.json();
+        const updatedTransactions = transactions.map((txn) =>
+          txn.id === selectedTxn.id
+            ? {
+                ...txn,
+                annotation: {
+                  id: savedAnnotation.id,
+                  taxableStatus: savedAnnotation.taxableStatus,
+                  taxableAmount: savedAnnotation.taxableAmount,
+                  taxCategory: savedAnnotation.taxCategory,
+                  reason: savedAnnotation.reason,
+                  reliefType: savedAnnotation.reliefType,
+                  status: savedAnnotation.status,
+                  notes: savedAnnotation.notes,
+                  aiSuggested: savedAnnotation.aiSuggested,
+                  aiConfidence: savedAnnotation.aiConfidence,
+                },
+              }
+            : txn
+        );
+
+        setTransactions(updatedTransactions);
+
+        const updatedSelectedTxn = updatedTransactions.find((txn) => txn.id === selectedTxn.id) || null;
+        setSelectedTxn(updatedSelectedTxn);
+        void loadStats(activeWorkspaceId);
+
         // Move to next unannotated transaction
-        const nextUnannotated = transactions.find(
+        const nextUnannotated = updatedTransactions.find(
           (t) => t.id !== selectedTxn.id && !t.annotation
         );
         if (nextUnannotated) {
@@ -236,9 +279,14 @@ export default function AnnotationsPage() {
   const progressPct = totalCount > 0 ? Math.round((annotatedCount / totalCount) * 100) : 0;
 
   // Per-month transaction counts
-  const monthTxnCounts = MONTHS.map((_, i) =>
-    transactions.filter((t) => t.statement.month === i + 1).length
-  );
+  const monthTxnCounts = MONTHS.map((_, i) => stats?.monthCounts?.[i + 1] ?? 0);
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   // Delete all transactions for a specific month
   const handleDeleteMonth = async (monthIndex: number) => {
@@ -259,7 +307,10 @@ export default function AnnotationsPage() {
         }),
       });
       if (res.ok) {
-        await loadData(activeWorkspaceId);
+        await Promise.all([
+          loadTransactions(activeWorkspaceId, currentPage),
+          loadStats(activeWorkspaceId),
+        ]);
       }
     } catch {
       // silent
@@ -375,54 +426,79 @@ export default function AnnotationsPage() {
                   </p>
                 </div>
               ) : (
-              <table className="anno-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: 32 }}></th>
-                    <th>Date</th>
-                    <th>Description</th>
-                    <th>Credit/Debit</th>
-                    <th>Taxable?</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((t) => {
-                    const isCredit = BigInt(t.creditAmount) > 0n;
-                    const amount = isCredit ? t.creditAmount : t.debitAmount;
-                    const annStatus = t.annotation?.status || "UNANNOTATED";
-                    const isTaxable = t.annotation?.taxableStatus === "YES";
-
-                    return (
-                      <tr
-                        key={t.id}
-                        className={`anno-row ${selectedTxn?.id === t.id ? "anno-row--selected" : ""}`}
-                        onClick={() => { setSelectedTxn(t); setPanelOpen(true); }}
-                      >
-                        <td>
-                          <input type="checkbox" className="anno-checkbox" readOnly checked={selectedTxn?.id === t.id} />
-                        </td>
-                        <td className="anno-date">{formatDate(t.transactionDate)}</td>
-                        <td>
-                          <span className="anno-desc">{t.description}</span>
-                          {t.channel && <span className="anno-subdesc">{t.channel}</span>}
-                        </td>
-                        <td className={isCredit ? "anno-credit" : "anno-debit"}>
-                          {isCredit ? "" : "-"}{formatKobo(amount)}
-                        </td>
-                        <td>
-                          <div className={`taxable-toggle ${isTaxable ? "taxable-toggle--on" : ""}`}>
-                            <div className="taxable-toggle-dot" />
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`anno-status anno-status--${annStatus.toLowerCase()}`}>{annStatus}</span>
-                        </td>
+                <>
+                  <table className="anno-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: 32 }}></th>
+                        <th>Date</th>
+                        <th>Description</th>
+                        <th>Credit/Debit</th>
+                        <th>Taxable?</th>
+                        <th>Status</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                    </thead>
+                    <tbody>
+                      {filtered.map((t) => {
+                        const isCredit = BigInt(t.creditAmount) > 0n;
+                        const amount = isCredit ? t.creditAmount : t.debitAmount;
+                        const annStatus = t.annotation?.status || "UNANNOTATED";
+                        const isTaxable = t.annotation?.taxableStatus === "YES";
+
+                        return (
+                          <tr
+                            key={t.id}
+                            className={`anno-row ${selectedTxn?.id === t.id ? "anno-row--selected" : ""}`}
+                            onClick={() => { setSelectedTxn(t); setPanelOpen(true); }}
+                          >
+                            <td>
+                              <input type="checkbox" className="anno-checkbox" readOnly checked={selectedTxn?.id === t.id} />
+                            </td>
+                            <td className="anno-date">{formatDate(t.transactionDate)}</td>
+                            <td>
+                              <span className="anno-desc">{t.description}</span>
+                              {t.channel && <span className="anno-subdesc">{t.channel}</span>}
+                            </td>
+                            <td className={isCredit ? "anno-credit" : "anno-debit"}>
+                              {isCredit ? "" : "-"}{formatKobo(amount)}
+                            </td>
+                            <td>
+                              <div className={`taxable-toggle ${isTaxable ? "taxable-toggle--on" : ""}`}>
+                                <div className="taxable-toggle-dot" />
+                              </div>
+                            </td>
+                            <td>
+                              <span className={`anno-status anno-status--${annStatus.toLowerCase()}`}>{annStatus}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {totalPages > 1 && (
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderTop: "1px solid rgba(15, 23, 42, 0.08)" }}>
+                      <span style={{ fontSize: 13, color: "var(--te-text-muted)" }}>
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          className="anno-secondary-btn"
+                          disabled={currentPage === 1 || loading}
+                          onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                        >
+                          Previous
+                        </button>
+                        <button
+                          className="anno-secondary-btn"
+                          disabled={currentPage >= totalPages || loading}
+                          onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                        >
+                          Next
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
             )}
             </div>
           </div>

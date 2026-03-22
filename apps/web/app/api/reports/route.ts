@@ -10,6 +10,16 @@ const redisConnection = {
     port: Number(new URL(REDIS_URL).port) || 6379,
 };
 
+const REPORT_CATEGORIES = [
+    'BUSINESS',
+    'EMPLOYMENT',
+    'INVESTMENT',
+    'RENTAL',
+    'FOREIGN',
+    'EXEMPT',
+    'UNCLASSIFIED',
+] as const;
+
 const generateReportQueue = new Queue('generate-report', { connection: redisConnection });
 
 /**
@@ -38,56 +48,88 @@ export async function POST(request: Request) {
             }
 
             const taxYear = workspace.taxYear;
-
-            // 1. Aggregate taxable income from COMPLETE annotations (credits only)
-            const taxableAnnotations = await prisma.annotation.findMany({
-                where: {
-                    deletedAt: null,
-                    status: 'COMPLETE',
-                    taxableStatus: 'YES',
-                    transaction: {
-                        statement: { workspaceId: data.workspaceId },
-                        creditAmount: { gt: 0 },
-                    },
-                },
-                select: {
-                    taxableStatus: true,
-                    taxableAmount: true,
-                    taxCategory: true,
-                    transaction: { select: { creditAmount: true } },
-                },
-            });
-
-            let grossIncome = BigInt(0);
-            const categoryTotals: Record<string, bigint> = {};
-
-            for (const ann of taxableAnnotations) {
-                const amount = ann.transaction.creditAmount;
-                grossIncome += amount;
-
-                const cat = ann.taxCategory || 'UNCLASSIFIED';
-                categoryTotals[cat] = (categoryTotals[cat] || BigInt(0)) + amount;
-            }
-
-            // 1b. Direct Business Expenses (taxable debits)
-            const dbeAnnotations = await prisma.annotation.findMany({
-                where: {
-                    status: 'COMPLETE',
-                    taxableStatus: 'YES',
-                    transaction: {
+            const [
+                grossIncomeAggregate,
+                totalDBEAggregate,
+                totalTransactions,
+                annotatedTransactions,
+                ...categoryAggregateResults
+            ] = await Promise.all([
+                prisma.transaction.aggregate({
+                    where: {
                         statement: { workspaceId: data.workspaceId, deletedAt: null },
-                        debitAmount: { gt: 0 },
+                        deletedAt: null,
+                        creditAmount: { gt: 0 },
+                        annotation: {
+                            is: {
+                                deletedAt: null,
+                                status: 'COMPLETE',
+                                taxableStatus: 'YES',
+                            },
+                        },
                     },
-                },
-                select: {
-                    transaction: { select: { debitAmount: true } },
-                },
-            });
+                    _sum: { creditAmount: true },
+                }),
+                prisma.transaction.aggregate({
+                    where: {
+                        statement: { workspaceId: data.workspaceId, deletedAt: null },
+                        deletedAt: null,
+                        debitAmount: { gt: 0 },
+                        annotation: {
+                            is: {
+                                deletedAt: null,
+                                status: 'COMPLETE',
+                                taxableStatus: 'YES',
+                            },
+                        },
+                    },
+                    _sum: { debitAmount: true },
+                }),
+                prisma.transaction.count({
+                    where: {
+                        deletedAt: null,
+                        statement: { workspaceId: data.workspaceId, deletedAt: null },
+                    },
+                }),
+                prisma.annotation.count({
+                    where: {
+                        deletedAt: null,
+                        status: 'COMPLETE',
+                        transaction: {
+                            deletedAt: null,
+                            statement: { workspaceId: data.workspaceId, deletedAt: null },
+                        },
+                    },
+                }),
+                ...REPORT_CATEGORIES.map((category) =>
+                    prisma.transaction.aggregate({
+                        where: {
+                            statement: { workspaceId: data.workspaceId, deletedAt: null },
+                            deletedAt: null,
+                            creditAmount: { gt: 0 },
+                            annotation: {
+                                is: {
+                                    deletedAt: null,
+                                    status: 'COMPLETE',
+                                    taxableStatus: 'YES',
+                                    taxCategory: category,
+                                },
+                            },
+                        },
+                        _sum: { creditAmount: true },
+                    })
+                ),
+            ]);
 
-            let totalDBE = BigInt(0);
-            for (const ann of dbeAnnotations) {
-                totalDBE += ann.transaction.debitAmount;
-            }
+            const grossIncome = grossIncomeAggregate._sum.creditAmount ?? BigInt(0);
+            const totalDBE = totalDBEAggregate._sum.debitAmount ?? BigInt(0);
+            const categoryTotals: Record<string, bigint> = {};
+            REPORT_CATEGORIES.forEach((category, index) => {
+                const total = categoryAggregateResults[index]?._sum.creditAmount ?? BigInt(0);
+                if (total > BigInt(0)) {
+                    categoryTotals[category] = total;
+                }
+            });
 
             // Net taxable = gross income - direct business expenses
             const netTaxableIncome = grossIncome > totalDBE ? grossIncome - totalDBE : BigInt(0);
@@ -105,19 +147,7 @@ export async function POST(request: Request) {
             const annualRentPaid = data.annualRentPaid ? BigInt(data.annualRentPaid) : (workspace.annualRentAmount || undefined);
             const result = computeTax({ grossIncome: netTaxableIncome, reliefs, taxYear, annualRentPaid });
 
-            // 4. Stats
-            const totalTransactions = await prisma.transaction.count({
-                where: { deletedAt: null, statement: { workspaceId: data.workspaceId } },
-            });
-            const annotatedTransactions = await prisma.annotation.count({
-                where: {
-                    deletedAt: null,
-                    status: 'COMPLETE',
-                    transaction: { statement: { workspaceId: data.workspaceId } },
-                },
-            });
-
-            // 5. Serialize BigInt and return
+            // 4. Serialize BigInt and return
             return NextResponse.json({
                 taxYear,
                 grossIncome: result.grossIncome.toString(),
