@@ -108,6 +108,8 @@ export default function AnnotationsPage() {
   const [loading, setLoading] = useState(true);
   const [pendingSaveIds, setPendingSaveIds] = useState<Record<string, true>>({});
   const [currentPage, setCurrentPage] = useState(1);
+  const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [confirmDeleteMonth, setConfirmDeleteMonth] = useState<number | null>(null); // monthIndex pending delete
 
   // Annotation form state
   const [formStatus, setFormStatus] = useState<TaxableStatus>("YES");
@@ -382,13 +384,18 @@ export default function AnnotationsPage() {
   }, [currentPage, totalPages]);
 
   // Delete all transactions for a specific month
-  const handleDeleteMonth = async (monthIndex: number) => {
-    const monthName = MONTHS[monthIndex];
+  const handleDeleteMonth = (monthIndex: number) => {
     const count = monthTxnCounts[monthIndex];
     if (count === 0) return;
-    if (!confirm(`You are about to clear all ${count} transaction entries for ${monthName}. This cannot be undone. Proceed?`)) return;
-    if (!activeWorkspaceId) return;
+    setConfirmDeleteMonth(monthIndex);
+  };
 
+  const confirmDeleteMonthAction = async () => {
+    if (confirmDeleteMonth === null || !activeWorkspaceId) return;
+    const monthIndex = confirmDeleteMonth;
+    const monthName = MONTHS[monthIndex];
+    const count = monthTxnCounts[monthIndex];
+    setConfirmDeleteMonth(null);
     try {
       const res = await fetch("/api/annotations", {
         method: "POST",
@@ -400,18 +407,80 @@ export default function AnnotationsPage() {
         }),
       });
       if (res.ok) {
+        setToast({ message: `Cleared ${count} transaction${count !== 1 ? "s" : ""} for ${monthName}.`, type: "success" });
+        setTimeout(() => setToast(null), 4000);
         await Promise.all([
           loadTransactions(activeWorkspaceId, currentPage),
           loadStats(activeWorkspaceId),
         ]);
+      } else {
+        setToast({ message: `Failed to clear ${monthName} transactions. Please try again.`, type: "error" });
+        setTimeout(() => setToast(null), 5000);
       }
     } catch {
-      // silent
+      setToast({ message: "Something went wrong. Please try again.", type: "error" });
+      setTimeout(() => setToast(null), 5000);
     }
   };
 
   return (
     <>
+      {/* Toast notification */}
+      {toast && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            right: 24,
+            zIndex: 9999,
+            background: toast.type === "success" ? "var(--te-success, #22c55e)" : "var(--te-error, #ef4444)",
+            color: "#fff",
+            padding: "12px 20px",
+            borderRadius: 10,
+            boxShadow: "0 4px 24px rgba(0,0,0,0.18)",
+            fontWeight: 500,
+            fontSize: 14,
+            maxWidth: 380,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            animation: "fadeInUp 0.3s ease",
+          }}
+        >
+          {toast.message}
+          <button
+            onClick={() => setToast(null)}
+            style={{ background: "none", border: "none", color: "#fff", cursor: "pointer", marginLeft: 8, fontSize: 16, lineHeight: 1 }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {/* Delete Month Confirmation Modal */}
+      {confirmDeleteMonth !== null && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: 420 }}>
+            <div className="modal-header">
+              <span className="material-symbols-outlined" style={{ fontSize: 22, color: "var(--te-error, #ef4444)" }}>delete_sweep</span>
+              <h3 className="modal-title">Clear {MONTHS[confirmDeleteMonth]} Transactions</h3>
+            </div>
+            <p className="modal-desc">
+              You are about to clear all <strong>{monthTxnCounts[confirmDeleteMonth]}</strong> transaction entries for <strong>{MONTHS[confirmDeleteMonth]}</strong>. This cannot be undone.
+            </p>
+            <div className="modal-actions">
+              <button className="modal-btn-cancel" onClick={() => setConfirmDeleteMonth(null)}>Cancel</button>
+              <button
+                className="modal-btn-confirm"
+                style={{ background: "var(--te-error, #ef4444)" }}
+                onClick={confirmDeleteMonthAction}
+              >
+                Clear Transactions
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="annotations-page">
         <div className="annotations-main">
           {/* Stat Cards */}
@@ -507,6 +576,18 @@ export default function AnnotationsPage() {
                   </div>
                   <h3 className="anno-empty-title">Select a Tax Year</h3>
                   <p className="anno-empty-desc">Please select or create a Tax Year to view transactions.</p>
+                </div>
+              ) : loading ? (
+                <div className="anno-empty-state">
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
+                    <span
+                      className="material-symbols-outlined status-spin"
+                      style={{ fontSize: 40, color: "var(--te-primary)" }}
+                    >
+                      progress_activity
+                    </span>
+                    <p className="anno-empty-desc" style={{ margin: 0 }}>Loading transactions…</p>
+                  </div>
                 </div>
               ) : filtered.length === 0 ? (
                 <div className="anno-empty-state">

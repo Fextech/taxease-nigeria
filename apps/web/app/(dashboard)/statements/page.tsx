@@ -56,6 +56,7 @@ export default function StatementsPage() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState("");
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null); // statementId pending delete
 
   // Unlock modal state
   const [showUnlockModal, setShowUnlockModal] = useState(false);
@@ -313,8 +314,13 @@ export default function StatementsPage() {
 
 
   const handleDelete = async (statementId: string) => {
-    if (!confirm("Delete this statement? This cannot be undone.")) return;
+    setConfirmDelete(statementId);
+  };
 
+  const confirmDeleteStatement = async () => {
+    if (!confirmDelete) return;
+    const statementId = confirmDelete;
+    setConfirmDelete(null);
     try {
       const res = await fetch("/api/statements/upload", {
         method: "POST",
@@ -324,9 +330,15 @@ export default function StatementsPage() {
 
       if (res.ok) {
         setStatements((prev) => prev.filter((s) => s.id !== statementId));
+        setToast({ message: "Statement deleted successfully.", type: "success" });
+        setTimeout(() => setToast(null), 4000);
+      } else {
+        setToast({ message: "Failed to delete statement. Please try again.", type: "error" });
+        setTimeout(() => setToast(null), 5000);
       }
     } catch {
-      setError("Failed to delete statement");
+      setToast({ message: "Failed to delete statement.", type: "error" });
+      setTimeout(() => setToast(null), 5000);
     }
   };
 
@@ -373,6 +385,29 @@ export default function StatementsPage() {
           >
             ×
           </button>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {confirmDelete && (
+        <div className="modal-overlay">
+          <div className="modal-card" style={{ maxWidth: 400 }}>
+            <div className="modal-header">
+              <span className="material-symbols-outlined" style={{ fontSize: 22, color: "var(--te-error, #ef4444)" }}>delete</span>
+              <h3 className="modal-title">Delete Statement</h3>
+            </div>
+            <p className="modal-desc">Are you sure you want to delete this statement? This action cannot be undone.</p>
+            <div className="modal-actions">
+              <button className="modal-btn-cancel" onClick={() => setConfirmDelete(null)}>Cancel</button>
+              <button
+                className="modal-btn-confirm"
+                style={{ background: "var(--te-error, #ef4444)" }}
+                onClick={confirmDeleteStatement}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
       <div className="statements">

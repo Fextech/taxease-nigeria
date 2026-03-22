@@ -5,9 +5,15 @@ import { computeTax, type Relief } from '@banklens/shared';
 import { Queue } from 'bullmq';
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const parsedUrl = new URL(REDIS_URL);
+
 const redisConnection = {
-    host: new URL(REDIS_URL).hostname || 'localhost',
-    port: Number(new URL(REDIS_URL).port) || 6379,
+    host: parsedUrl.hostname,
+    port: Number(parsedUrl.port) || 6379,
+    password: parsedUrl.password || undefined,
+    tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
 };
 
 const REPORT_CATEGORIES = [
@@ -137,7 +143,7 @@ export async function POST(request: Request) {
             // 2. Build reliefs from frontend input OR saved workspace data
             const rawDeductions = data.additionalDeductions !== undefined ? data.additionalDeductions : workspace.additionalDeductions;
             const additionalDeductions = Array.isArray(rawDeductions) ? rawDeductions as { label: string; amount: string }[] : [];
-            
+
             const reliefs: Relief[] = additionalDeductions.map(d => ({
                 label: d.label || 'Additional Deduction',
                 amount: BigInt(Math.max(0, parseInt(d.amount, 10) || 0))
