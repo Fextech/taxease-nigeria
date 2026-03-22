@@ -1,6 +1,5 @@
 import { adminProcedure, router } from '../../trpc/trpc.js';
 import { z } from 'zod';
-import Redis from 'ioredis';
 import { Queue } from 'bullmq';
 import { S3Client, HeadBucketCommand } from '@aws-sdk/client-s3';
 
@@ -14,7 +13,6 @@ const redisConnection = {
     maxRetriesPerRequest: null,
     enableReadyCheck: false,
 };
-const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 
 const parseQueue = new Queue('parse-statement', { connection: redisConnection });
 
@@ -40,9 +38,9 @@ export const adminSystemRouter = router({
     getServiceStatuses: adminProcedure.query(async ({ ctx }) => {
         const statuses = [
             { id: 'api', name: 'Fastify API', status: 'operational', ping: 1, type: 'core' },
-            { id: 'web', name: 'Next.js Frontend', status: 'operational', ping: 1, type: 'core' }, // Assuming it's up if API is reachable by admin
+            { id: 'web', name: 'Next.js Frontend', status: 'operational', ping: 1, type: 'core' },
         ];
-        
+
         // 1. Database
         const dbStart = Date.now();
         try {
@@ -52,10 +50,11 @@ export const adminSystemRouter = router({
             statuses.push({ id: 'db', name: 'PostgreSQL Db', status: 'down', ping: Date.now() - dbStart, type: 'infrastructure' });
         }
 
-        // 2. Redis
+        // 2. Redis — ping via BullMQ client
         const redisStart = Date.now();
         try {
-            await connection.ping();
+            const client = await parseQueue.client;
+            await client.ping();
             statuses.push({ id: 'redis', name: 'Redis Cache', status: 'operational', ping: Date.now() - redisStart, type: 'infrastructure' });
         } catch {
             statuses.push({ id: 'redis', name: 'Redis Cache', status: 'down', ping: Date.now() - redisStart, type: 'infrastructure' });
@@ -67,7 +66,6 @@ export const adminSystemRouter = router({
             await s3.send(new HeadBucketCommand({ Bucket: process.env.AWS_S3_BUCKET_NAME || 'banklens-statements-dev' }));
             statuses.push({ id: 's3', name: 'AWS S3', status: 'operational', ping: Date.now() - s3Start, type: 'infrastructure' });
         } catch (err: any) {
-            // Auth / permission errors (403, 401) mean S3 is reachable but creds are wrong
             const httpStatus = err?.$metadata?.httpStatusCode;
             const s3Status = httpStatus && httpStatus < 500 ? 'degraded' : 'down';
             statuses.push({ id: 's3', name: 'AWS S3', status: s3Status, ping: Date.now() - s3Start, type: 'infrastructure' });
@@ -100,7 +98,7 @@ export const adminSystemRouter = router({
             parseQueue.getDelayedCount(),
             parseQueue.getWaitingCount(),
         ]);
-        
+
         const total = active + completed + failed + delayed + waiting;
         const progressPercent = total === 0 ? 100 : Math.round((completed / total) * 100);
 
@@ -115,7 +113,6 @@ export const adminSystemRouter = router({
     }),
 
     getRecentErrors: adminProcedure.query(async ({ ctx }) => {
-        // Fetch recent error statements as a proxy for errors, since there is no error log table
         const errStatements = await ctx.prisma.statement.findMany({
             where: { parseStatus: 'ERROR' },
             orderBy: { updatedAt: 'desc' },

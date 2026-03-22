@@ -3,11 +3,16 @@ import { Queue } from 'bullmq';
 // ─── Queues ──────────────────────────────────────────────
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
+const parsedUrl = new URL(REDIS_URL);
 
 const parseStatementQueue = new Queue('parse-statement', {
     connection: {
-        host: new URL(REDIS_URL).hostname || 'localhost',
-        port: Number(new URL(REDIS_URL).port) || 6379,
+        host: parsedUrl.hostname,
+        port: Number(parsedUrl.port) || 6379,
+        password: parsedUrl.password || undefined,
+        tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
+        maxRetriesPerRequest: null,
+        enableReadyCheck: false,
     },
 });
 
