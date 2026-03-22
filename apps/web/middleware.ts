@@ -40,6 +40,12 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(signInUrl);
   }
 
+  if ((token as { invalid?: boolean }).invalid === true) {
+    const signInUrl = new URL("/sign-in", req.url);
+    signInUrl.searchParams.set("callbackUrl", pathname);
+    return NextResponse.redirect(signInUrl);
+  }
+
   // MFA Gate Check
   if (token.mfaEnabled === true && token.mfaVerified !== true) {
     return NextResponse.redirect(new URL("/mfa-verify", req.url));

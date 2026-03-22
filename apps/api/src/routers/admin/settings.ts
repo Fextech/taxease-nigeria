@@ -1,4 +1,4 @@
-import { adminProcedure, router } from '../../trpc/trpc.js';
+import { adminProcedure, superAdminProcedure, router } from '../../trpc/trpc.js';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 
@@ -143,7 +143,7 @@ export const adminSettingsRouter = router({
             };
         }),
 
-    updateMaintenanceConfig: adminProcedure
+    updateMaintenanceConfig: superAdminProcedure
         .input(z.object({
             enabled: z.boolean(),
             html: z.string().max(50000),
@@ -176,7 +176,7 @@ export const adminSettingsRouter = router({
             return { success: true };
         }),
 
-    toggleMaintenanceMode: adminProcedure
+    toggleMaintenanceMode: superAdminProcedure
         .input(z.object({ enabled: z.boolean() }))
         .mutation(async ({ ctx, input }) => {
             await ctx.prisma.appConfig.upsert({
@@ -211,7 +211,7 @@ export const adminSettingsRouter = router({
             }
         }),
 
-    updateHowToGuide: adminProcedure
+    updateHowToGuide: superAdminProcedure
         .input(z.object({ pages: z.array(z.string()) }))
         .mutation(async ({ ctx, input }) => {
             const jsonValue = JSON.stringify(input.pages);

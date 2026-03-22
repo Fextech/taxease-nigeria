@@ -25,6 +25,7 @@ model User {
   name                    String?
   password                String?
   isSuspended             Boolean        @default(false)
+  forceLogoutAt           DateTime?
   stateOfResidence        String?
   taxIdentificationNumber String?
   accounts                Account[]

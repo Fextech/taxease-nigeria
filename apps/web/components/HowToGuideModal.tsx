@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 
 export default function HowToGuideModal() {
   const [isOpen, setIsOpen] = useState(false);
@@ -80,7 +81,7 @@ export default function HowToGuideModal() {
 
         {/* Content Body */}
         <div className="flex-1 overflow-y-auto p-8 text-slate-300">
-          <div dangerouslySetInnerHTML={{ __html: pages[currentIndex] }} />
+          <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(pages[currentIndex]) }} />
         </div>
 
         {/* Footer Navigation */}

@@ -1,4 +1,4 @@
-import { adminProcedure, router } from '../../trpc/trpc.js';
+import { adminProcedure, operationsProcedure, superAdminProcedure, router } from '../../trpc/trpc.js';
 import { z } from 'zod';
 import { sendBroadcastEmail } from '../../lib/mail.js';
 
@@ -203,12 +203,12 @@ export const adminUsersRouter = router({
             };
         }),
 
-    revealEmail: adminProcedure
+    revealEmail: operationsProcedure
         .input(z.object({ userId: z.string() }))
         .mutation(async ({ ctx, input }) => {
             const user = await ctx.prisma.user.findUnique({
                 where: { id: input.userId },
-                select: { email: true }
+                select: { email: true, name: true }
             });
 
             if (!user) {
@@ -222,7 +222,7 @@ export const adminUsersRouter = router({
                     adminEmail: ctx.admin.email,
                     adminRole: ctx.admin.role,
                     actionCode: 'REVEAL_EMAIL',
-                    targetEntity: `User:${input.userId}`,
+                    targetEntity: `User:${user.name || 'Unknown'} (${user.email})`,
                     metadata: { reason: "Admin requested unmasked email" },
                 }
             });
@@ -268,7 +268,7 @@ export const adminUsersRouter = router({
                     adminEmail: ctx.admin.email,
                     adminRole: ctx.admin.role,
                     actionCode: 'USER_MESSAGE_SENT',
-                    targetEntity: `User:${input.userId}`,
+                    targetEntity: `User:${user.name || 'Unknown'} (${user.email})`,
                     metadata: { subject: input.subject }
                 }
             });
@@ -276,7 +276,7 @@ export const adminUsersRouter = router({
             return { success: true };
         }),
 
-    giftCredit: adminProcedure
+    giftCredit: operationsProcedure
         .input(z.object({
             userId: z.string(),
             workspaceId: z.string(),
@@ -325,7 +325,7 @@ export const adminUsersRouter = router({
                     adminEmail: ctx.admin.email,
                     adminRole: ctx.admin.role,
                     actionCode: 'CREDITS_GIFTED',
-                    targetEntity: `User:${input.userId}`,
+                    targetEntity: `User:${user.name || 'Unknown'} (${user.email})`,
                     metadata: { credits: input.credits, workspaceId: workspace.id, taxYear: workspace.taxYear }
                 }
             });
@@ -333,7 +333,7 @@ export const adminUsersRouter = router({
             return { success: true };
         }),
 
-    suspendUser: adminProcedure
+    suspendUser: superAdminProcedure
         .input(z.object({ userId: z.string() }))
         .mutation(async ({ ctx, input }) => {
             const updated = await ctx.prisma.user.update({
@@ -347,14 +347,23 @@ export const adminUsersRouter = router({
                     adminEmail: ctx.admin.email,
                     adminRole: ctx.admin.role,
                     actionCode: 'USER_SUSPENDED',
-                    targetEntity: `User:${input.userId}`,
+                    targetEntity: `User:${updated.name || 'Unknown'} (${updated.email})`,
                 }
             });
+
+            if (updated.email) {
+                await sendBroadcastEmail({
+                    email: updated.email,
+                    name: updated.name || "User",
+                    subject: "Your account has been suspended",
+                    body: "<p>We are writing to inform you that your account has been suspended.</p><p>If you have any questions or believe this was a mistake, please reach out to the administrator concerning the action by replying to this email.</p>"
+                }).catch(err => console.error("Failed to send suspension email:", err));
+            }
 
             return updated;
         }),
 
-    unsuspendUser: adminProcedure
+    unsuspendUser: superAdminProcedure
         .input(z.object({ userId: z.string() }))
         .mutation(async ({ ctx, input }) => {
             const updated = await ctx.prisma.user.update({
@@ -368,14 +377,14 @@ export const adminUsersRouter = router({
                     adminEmail: ctx.admin.email,
                     adminRole: ctx.admin.role,
                     actionCode: 'USER_UNSUSPENDED',
-                    targetEntity: `User:${input.userId}`,
+                    targetEntity: `User:${updated.name || 'Unknown'} (${updated.email})`,
                 }
             });
 
             return updated;
         }),
 
-    deleteUser: adminProcedure
+    deleteUser: superAdminProcedure
         .input(z.object({ userId: z.string() }))
         .mutation(async ({ ctx, input }) => {
             const updated = await ctx.prisma.user.update({
@@ -389,18 +398,32 @@ export const adminUsersRouter = router({
                     adminEmail: ctx.admin.email,
                     adminRole: ctx.admin.role,
                     actionCode: 'USER_DELETED',
-                    targetEntity: `User:${input.userId}`,
+                    targetEntity: `User:${updated.name || 'Unknown'} (${updated.email})`,
                 }
             });
+
+            if (updated.email) {
+                await sendBroadcastEmail({
+                    email: updated.email,
+                    name: updated.name || "User",
+                    subject: "Your account has been deleted",
+                    body: "<p>We are writing to inform you that your account and associated data have been deleted.</p><p>If you have any questions, please reach out to the administrator concerning the action by replying to this email.</p>"
+                }).catch(err => console.error("Failed to send deletion email:", err));
+            }
 
             return { success: true };
         }),
 
-    forceLogout: adminProcedure
+    forceLogout: superAdminProcedure
         .input(z.object({ userId: z.string() }))
         .mutation(async ({ ctx, input }) => {
             await ctx.prisma.session.deleteMany({
                 where: { userId: input.userId }
+            });
+
+            const updated = await ctx.prisma.user.update({
+                where: { id: input.userId },
+                data: { forceLogoutAt: new Date() }
             });
 
             await ctx.prisma.adminAuditLog.create({
@@ -409,14 +432,14 @@ export const adminUsersRouter = router({
                     adminEmail: ctx.admin.email,
                     adminRole: ctx.admin.role,
                     actionCode: 'USER_FORCE_LOGOUT',
-                    targetEntity: `User:${input.userId}`,
+                    targetEntity: `User:${updated.name || 'Unknown'} (${updated.email})`,
                 }
             });
 
             return { success: true };
         }),
 
-    createUser: adminProcedure
+    createUser: superAdminProcedure
         .input(z.object({
             name: z.string().min(1),
             email: z.string().email(),
@@ -447,7 +470,7 @@ export const adminUsersRouter = router({
                     adminEmail: ctx.admin.email,
                     adminRole: ctx.admin.role,
                     actionCode: 'USER_CREATED',
-                    targetEntity: `User:${user.id}`,
+                    targetEntity: `User:${user.name || 'Unknown'} (${user.email})`,
                     metadata: { email: user.email, plan: user.plan }
                 }
             });

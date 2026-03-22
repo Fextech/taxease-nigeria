@@ -3,6 +3,7 @@ import Image from "next/image";
 import BackgroundLayer from "@/components/BackgroundLayer";
 import MarketingHeader from "@/components/MarketingHeader";
 import MarketingFooter from "@/components/MarketingFooter";
+import { sanitizeHtml } from "@/lib/sanitize-html";
 
 export const metadata = {
   title: "Maintenance | Banklens Nigeria",
@@ -45,7 +46,7 @@ export default async function MaintenancePage() {
 
       {/* Body — dynamic HTML from admin */}
       <main className="flex-1 w-full max-w-4xl mx-auto px-6 py-16 flex flex-col items-center justify-center relative z-10">
-        <div dangerouslySetInnerHTML={{ __html: html }} className="w-full text-center" />
+        <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }} className="w-full text-center" />
       </main>
 
       <MarketingFooter />

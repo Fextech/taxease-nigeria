@@ -1,8 +1,9 @@
 import { z } from 'zod';
-import { publicProcedure, router } from '../../trpc/trpc.js';
+import { adminProcedure, publicProcedure, router } from '../../trpc/trpc.js';
 import { TRPCError } from '@trpc/server';
 import bcrypt from 'bcryptjs';
 import * as OTPAuth from 'otpauth';
+import { getAdminJwtSecret } from '../../lib/admin-jwt.js';
 
 export const adminAuthRouter = router({
     login: publicProcedure
@@ -79,7 +80,7 @@ export const adminAuthRouter = router({
 
             // At this point TOTP is verified. We create the custom JWT token
             const { SignJWT } = await import('jose');
-            const secret = new TextEncoder().encode(process.env.ADMIN_JWT_SECRET || 'fallback_admin_secret');
+            const secret = getAdminJwtSecret();
             
             const token = await new SignJWT({
                 adminId: admin.id,
@@ -106,8 +107,25 @@ export const adminAuthRouter = router({
                 admin: {
                     id: admin.id,
                     email: admin.email,
+                    fullName: admin.fullName,
                     role: admin.role,
                 }
             };
+        }),
+
+    logout: adminProcedure
+        .mutation(async ({ ctx }) => {
+            if (ctx.adminSessionToken) {
+                await ctx.prisma.adminSession.updateMany({
+                    where: {
+                        token: ctx.adminSessionToken,
+                        adminId: ctx.admin.id,
+                        revokedAt: null,
+                    },
+                    data: { revokedAt: new Date() },
+                });
+            }
+
+            return { success: true };
         }),
 });

@@ -33,7 +33,15 @@ function SignInContent() {
       });
 
       if (result?.error) {
-        setFormError("Invalid email or password");
+        if (result.error === "AccountSuspended") {
+          setFormError("Your account has been suspended. Please contact the admin.");
+        } else {
+          setFormError("Invalid email or password");
+        }
+      } else if (result?.url && result.url.includes("error=AccountSuspended")) {
+        setFormError("Your account has been suspended. Please contact the admin.");
+      } else if (result?.url && result.url.includes("error=AccessDenied")) {
+        setFormError("Access denied. Your account may be suspended.");
       } else {
         router.push(callbackUrl);
       }
@@ -50,9 +58,13 @@ function SignInContent() {
       ? "This email is already associated with another sign-in method."
       : error === "CredentialsSignin"
         ? "Invalid email or password."
-        : error
-          ? "Something went wrong. Please try again."
-          : "");
+        : error === "AccountSuspended"
+          ? "Your account has been suspended. Please contact the admin."
+          : error === "AccessDenied"
+            ? "Access denied. Your account may be suspended."
+            : error
+              ? "Something went wrong. Please try again."
+              : "");
 
   return (
     <div className="min-h-screen relative flex flex-col font-sans overflow-x-hidden text-[#f1f5f7]">

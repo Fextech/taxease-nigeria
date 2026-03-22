@@ -1,4 +1,4 @@
-import { adminProcedure, router } from '../../trpc/trpc.js';
+import { adminProcedure, operationsProcedure, router } from '../../trpc/trpc.js';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import { sendBroadcastEmail } from '../../lib/mail.js';
@@ -54,7 +54,7 @@ export const adminBroadcastRouter = router({
             return broadcast;
         }),
 
-    updateBroadcast: adminProcedure
+    updateBroadcast: operationsProcedure
         .input(z.object({
             id: z.string(),
             subject: z.string().min(1).optional(),
@@ -171,7 +171,7 @@ export const adminBroadcastRouter = router({
         return years.map(y => y.taxYear);
     }),
 
-    createBroadcast: adminProcedure
+    createBroadcast: operationsProcedure
         .input(z.object({
             subject: z.string().min(1),
             body: z.string().min(1),

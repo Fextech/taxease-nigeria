@@ -13,17 +13,11 @@ export function Providers({ children }: { children: React.ReactNode }) {
         httpBatchLink({
           url: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/trpc`,
           fetch: (url, options) => {
-            return fetch(url, { ...options, cache: "no-store" } as RequestInit);
-          },
-          async headers() {
-            // Include admin JWT in Authorization header
-            if (typeof window !== "undefined") {
-              const token = localStorage.getItem("admin_token");
-              if (token) {
-                return { Authorization: `Bearer ${token}` };
-              }
-            }
-            return {};
+            return fetch(url, {
+              ...options,
+              cache: "no-store",
+              credentials: "include",
+            } as RequestInit);
           },
         }),
       ],

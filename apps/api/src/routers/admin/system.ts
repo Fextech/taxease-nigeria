@@ -1,4 +1,4 @@
-import { adminProcedure, router } from '../../trpc/trpc.js';
+import { adminProcedure, router, superAdminProcedure } from '../../trpc/trpc.js';
 import { z } from 'zod';
 import { Queue } from 'bullmq';
 import { S3Client, HeadBucketCommand } from '@aws-sdk/client-s3';
@@ -137,8 +137,7 @@ export const adminSystemRouter = router({
         };
     }),
 
-    flushQueue: adminProcedure.mutation(async ({ ctx }) => {
-        if (ctx.admin.role !== 'SUPER_ADMIN') throw new Error('Unauthorized');
+    flushQueue: superAdminProcedure.mutation(async () => {
         await parseQueue.clean(0, 1000, 'failed');
         return { success: true };
     })

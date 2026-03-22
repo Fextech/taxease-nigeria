@@ -193,6 +193,12 @@ export async function POST(request: Request) {
             if (!txn) {
                 return NextResponse.json({ error: 'Transaction not found.' }, { status: 404 });
             }
+
+            // Ownership check — only the user who initiated the transaction can verify it
+            if (txn.userId !== userId) {
+                return NextResponse.json({ error: 'Transaction not found.' }, { status: 404 });
+            }
+
             if (txn.status === 'success') {
                 return NextResponse.json({ status: 'already_verified' });
             }

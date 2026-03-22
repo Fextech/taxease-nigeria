@@ -44,7 +44,8 @@ export default function AdminHeader() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    await fetch("/api/auth/logout", { method: "POST" });
     logout();
     router.push("/login");
   };

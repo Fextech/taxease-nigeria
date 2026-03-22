@@ -8,10 +8,14 @@ import { PrismaClient } from '@prisma/client';
 import { createContext } from './trpc/context.js';
 import { appRouter, type AppRouter } from './routers/index.js';
 import { startScheduledBroadcastPoller } from './routers/admin/broadcast.js';
+import { getAdminJwtSecret } from './lib/admin-jwt.js';
 
 const PORT = Number(process.env.API_PORT) || 3001;
 
 async function main() {
+    // Fail fast on boot if admin JWT signing is misconfigured.
+    getAdminJwtSecret();
+
     const fastify = Fastify({
         maxParamLength: 10000,
         logger: {

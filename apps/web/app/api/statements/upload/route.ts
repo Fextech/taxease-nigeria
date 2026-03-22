@@ -168,6 +168,16 @@ export async function POST(request: Request) {
             return NextResponse.json(statement);
 
         } else if (action === 'list') {
+            // Verify workspace ownership before listing (prevents IDOR)
+            const workspace = await prisma.workspace.findUnique({
+                where: { id: data.workspaceId },
+                select: { userId: true },
+            });
+
+            if (!workspace || workspace.userId !== session.user.id) {
+                return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+            }
+
             const statements = await prisma.statement.findMany({
                 where: {
                     workspaceId: data.workspaceId,
@@ -239,7 +249,7 @@ export async function POST(request: Request) {
         const message = error instanceof Error ? error.message : String(error);
         console.error('Statement upload error:', message, error);
         return NextResponse.json(
-            { error: 'Internal server error', detail: message },
+            { error: 'Internal server error' },
             { status: 500 }
         );
     }

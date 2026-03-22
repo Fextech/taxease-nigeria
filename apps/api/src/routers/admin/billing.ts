@@ -1,4 +1,4 @@
-import { adminProcedure, router } from '../../trpc/trpc.js';
+import { adminProcedure, operationsProcedure, router } from '../../trpc/trpc.js';
 import { z } from 'zod';
 
 // ─── Paystack API Helper ─────────────────────────────────
@@ -150,7 +150,7 @@ export const adminBillingRouter = router({
     }),
 
     // ─── Update Pricing ──────────────────────────────────
-    updatePricing: adminProcedure
+    updatePricing: operationsProcedure
         .input(
             z.object({
                 workspaceUnlockKobo: z.number().int().min(0).optional(),
@@ -207,7 +207,7 @@ export const adminBillingRouter = router({
         }),
 
     // ─── Sync Transactions from Paystack ─────────────────
-    syncPaystackTransactions: adminProcedure.mutation(async ({ ctx }) => {
+    syncPaystackTransactions: operationsProcedure.mutation(async ({ ctx }) => {
         const res = await paystackFetch<{ data: any[]; meta: any }>('/transaction', {
             params: { perPage: '100' },
         });

@@ -6,7 +6,7 @@ import { useAdminStore } from "@/stores/admin-store";
 
 export default function TotpVerifyPage() {
   const router = useRouter();
-  const { setToken, setAdmin } = useAdminStore();
+  const { setAdmin } = useAdminStore();
   const [code, setCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -24,7 +24,7 @@ export default function TotpVerifyPage() {
       }
 
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/trpc/admin.auth.verifyTotp`,
+        "/api/auth/verify-totp",
         {
           method: "POST",
           headers: {
@@ -41,11 +41,7 @@ export default function TotpVerifyPage() {
       const data = await res.json();
       sessionStorage.removeItem("adminId");
 
-      setToken(data.result?.data?.token);
-      setAdmin(data.result?.data?.admin);
-
-      // Set cookie for middleware
-      document.cookie = `admin_token=${data.result?.data?.token}; path=/; max-age=${8 * 60 * 60}; samesite=strict`;
+      setAdmin(data.admin ?? null);
 
       router.push("/dashboard");
     } catch (err: unknown) {

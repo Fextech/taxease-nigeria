@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 
 /**
  * Admin panel middleware — protects all routes except auth pages.
- * Checks for admin JWT token in cookies or localStorage (via request headers).
+ * Checks for the server-managed admin auth cookie.
  * RBAC is enforced server-side in tRPC procedures, not here.
  */
 export async function middleware(req: NextRequest) {

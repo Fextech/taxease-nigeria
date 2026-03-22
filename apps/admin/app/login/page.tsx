@@ -2,11 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAdminStore } from "@/stores/admin-store";
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const { setToken, setAdmin } = useAdminStore();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -19,7 +17,7 @@ export default function AdminLoginPage() {
 
     try {
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"}/trpc/admin.auth.login`,
+        "/api/auth/login",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -34,21 +32,14 @@ export default function AdminLoginPage() {
 
       const data = await res.json();
 
-      if (data.result?.data?.requiresTotp) {
+      if (data.requiresTotp) {
         // Need TOTP verification
-        sessionStorage.setItem("adminId", data.result.data.adminId);
+        sessionStorage.setItem("adminId", data.adminId);
         router.push("/totp-verify");
         return;
       }
 
-      // Full login successful
-      setToken(data.result?.data?.token);
-      setAdmin(data.result?.data?.admin);
-
-      // Set cookie for middleware
-      document.cookie = `admin_token=${data.result?.data?.token}; path=/; max-age=${8 * 60 * 60}; samesite=strict`;
-
-      router.push("/dashboard");
+      setError("TOTP enrollment is required for admin login.");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Login failed");
     } finally {

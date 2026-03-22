@@ -29,7 +29,7 @@ const NAV_ITEMS = [
 
 export default function AdminSidebar() {
   const pathname = usePathname();
-  const { admin, logout } = useAdminStore();
+  const { admin } = useAdminStore();
 
   return (
     <aside className="admin-sidebar">

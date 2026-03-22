@@ -17,5 +17,12 @@
   "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=20.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "undici": ">=7.24.0",
+      "effect": ">=3.20.0",
+      "fast-xml-parser": ">=5.5.6"
+    }
   }
 }

@@ -54,22 +54,6 @@ export const useWorkspaceStore = create<WorkspaceState>()(
           const data = await res.json();
           let ws: Workspace[] = Array.isArray(data) ? data : [];
 
-          // Auto-create a workspace for current year if none exist
-          if (ws.length === 0) {
-            const createRes = await fetch("/api/workspace", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                action: "create",
-                taxYear: new Date().getFullYear(),
-              }),
-            });
-            if (createRes.ok) {
-              const newWs = await createRes.json();
-              ws = [newWs];
-            }
-          }
-
           const { activeWorkspaceId } = get();
           const newState: Partial<WorkspaceState> = {
             workspaces: ws,

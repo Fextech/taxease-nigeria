@@ -37,3 +37,38 @@ export const adminProcedure = t.procedure.use(async ({ ctx, next }) => {
         },
     });
 });
+
+// Super-admin procedure — restricted to SUPER_ADMIN role only
+export const superAdminProcedure = adminProcedure.use(async ({ ctx, next }) => {
+    if (ctx.admin.role !== 'SUPER_ADMIN') {
+        throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'This action requires Super Admin privileges.',
+        });
+    }
+    return next({ ctx });
+});
+
+// Operations procedure — SUPER_ADMIN or OPERATIONS_ADMIN
+export const operationsProcedure = adminProcedure.use(async ({ ctx, next }) => {
+    const allowed = ['SUPER_ADMIN', 'OPERATIONS_ADMIN'] as const;
+    if (!allowed.includes(ctx.admin.role as typeof allowed[number])) {
+        throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'This action requires Operations Admin privileges.',
+        });
+    }
+    return next({ ctx });
+});
+
+// Support procedure — SUPER_ADMIN, OPERATIONS_ADMIN, or SUPPORT_AGENT
+export const supportProcedure = adminProcedure.use(async ({ ctx, next }) => {
+    const allowed = ['SUPER_ADMIN', 'OPERATIONS_ADMIN', 'SUPPORT_AGENT'] as const;
+    if (!allowed.includes(ctx.admin.role as typeof allowed[number])) {
+        throw new TRPCError({
+            code: 'FORBIDDEN',
+            message: 'This action requires support privileges.',
+        });
+    }
+    return next({ ctx });
+});

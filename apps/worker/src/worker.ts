@@ -464,4 +464,36 @@ const shutdown = async () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
+// ─── Chromium Diagnostic ─────────────────────────────────
+import { existsSync } from 'fs';
+import { execSync } from 'child_process';
+
+const chromiumPath = process.env.PUPPETEER_EXECUTABLE_PATH || 'not set';
+logger.info({ chromiumPath }, '🔍 PUPPETEER_EXECUTABLE_PATH value');
+
+try {
+    const binCheck = execSync(
+        'ls /usr/bin/chrom* /usr/lib/chromium* 2>/dev/null || echo "nothing found in /usr/bin or /usr/lib"'
+    ).toString().trim();
+    logger.info({ binCheck }, '🔍 Chromium binaries found');
+} catch {
+    logger.warn('Could not search for chromium binaries');
+}
+
+try {
+    const whichResult = execSync(
+        'which chromium || which chromium-browser || which google-chrome-stable || echo "none in PATH"'
+    ).toString().trim();
+    logger.info({ whichResult }, '🔍 Chromium in PATH');
+} catch {
+    logger.warn('Could not run which for chromium');
+}
+
+if (chromiumPath !== 'not set' && existsSync(chromiumPath)) {
+    logger.info('✅ Chromium found at PUPPETEER_EXECUTABLE_PATH');
+} else {
+    logger.warn('⚠️ Chromium NOT found at PUPPETEER_EXECUTABLE_PATH — PDF generation will fail');
+}
+// ─────────────────────────────────────────────────────────
+
 logger.info('🔧 Banklens Worker running — waiting for jobs...');
