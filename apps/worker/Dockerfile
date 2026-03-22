@@ -73,6 +73,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/apps/worker/node_modules ./apps/worker/node_modules
 COPY --from=builder /app/apps/worker/dist ./apps/worker/dist
 COPY --from=builder /app/apps/worker/package.json ./apps/worker/package.json
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
