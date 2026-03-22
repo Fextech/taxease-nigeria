@@ -54,6 +54,14 @@ function isDebitTxn(t: TransactionRow): boolean {
   return BigInt(t.debitAmount) > 0n;
 }
 
+function isCompleteAnnotation(annotation: AnnotationData | null): boolean {
+  return annotation?.status === "COMPLETE";
+}
+
+function isPendingAnnotation(annotation: AnnotationData | null): boolean {
+  return !isCompleteAnnotation(annotation);
+}
+
 const TAX_CATEGORIES: { value: TaxCategory; label: string }[] = [
   { value: "BUSINESS", label: "Business Income" },
   { value: "EMPLOYMENT", label: "Employment Income" },
@@ -98,7 +106,7 @@ export default function AnnotationsPage() {
   const [selectedTxn, setSelectedTxn] = useState<TransactionRow | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [pendingSaveIds, setPendingSaveIds] = useState<Record<string, true>>({});
   const [currentPage, setCurrentPage] = useState(1);
 
   // Annotation form state
@@ -187,15 +195,105 @@ export default function AnnotationsPage() {
     }
   }, [selectedTxn]);
 
-  const handleSave = async (status: AnnotationStatusType = "COMPLETE") => {
-    if (!selectedTxn || !activeWorkspaceId) return;
-    setSaving(true);
-
-    const isDebit = isDebitTxn(selectedTxn);
-    // For debits: DBE maps to YES (so it is treated as Direct Business Expense), OTHER maps to NO
-    const resolvedTaxableStatus = isDebit
+  const buildAnnotationPayload = (
+    transaction: TransactionRow,
+    status: AnnotationStatusType
+  ): AnnotationData => {
+    const isDebit = isDebitTxn(transaction);
+    const taxableStatus = isDebit
       ? (formExpenseStatus === "DBE" ? "YES" : "NO")
       : formStatus;
+
+    return {
+      id: transaction.annotation?.id || `optimistic-${transaction.id}`,
+      taxableStatus,
+      taxableAmount: transaction.annotation?.taxableAmount ?? null,
+      taxCategory: isDebit ? "UNCLASSIFIED" : formCategory,
+      reason: formReason || null,
+      reliefType: transaction.annotation?.reliefType || null,
+      status,
+      notes: transaction.annotation?.notes || null,
+      aiSuggested: transaction.annotation?.aiSuggested || false,
+      aiConfidence: transaction.annotation?.aiConfidence || null,
+    };
+  };
+
+  const getIncomeContribution = (transaction: TransactionRow, annotation: AnnotationData | null) => {
+    if (!annotation || !isCompleteAnnotation(annotation) || annotation.taxableStatus !== "YES") {
+      return 0n;
+    }
+
+    return BigInt(transaction.creditAmount) > 0n ? BigInt(transaction.creditAmount) : 0n;
+  };
+
+  const getDBEContribution = (transaction: TransactionRow, annotation: AnnotationData | null) => {
+    if (!annotation || !isCompleteAnnotation(annotation) || annotation.taxableStatus !== "YES") {
+      return 0n;
+    }
+
+    return BigInt(transaction.debitAmount) > 0n ? BigInt(transaction.debitAmount) : 0n;
+  };
+
+  const applyOptimisticStats = (
+    currentStats: Stats | null,
+    transaction: TransactionRow,
+    nextAnnotation: AnnotationData
+  ) => {
+    if (!currentStats) return currentStats;
+
+    const wasComplete = isCompleteAnnotation(transaction.annotation);
+    const willBeComplete = isCompleteAnnotation(nextAnnotation);
+    const annotatedDelta = !wasComplete && willBeComplete ? 1 : wasComplete && !willBeComplete ? -1 : 0;
+
+    const previousIncome = getIncomeContribution(transaction, transaction.annotation);
+    const nextIncome = getIncomeContribution(transaction, nextAnnotation);
+    const previousDBE = getDBEContribution(transaction, transaction.annotation);
+    const nextDBE = getDBEContribution(transaction, nextAnnotation);
+
+    const nextAnnotatedTransactions = currentStats.annotatedTransactions + annotatedDelta;
+
+    return {
+      ...currentStats,
+      annotatedTransactions: nextAnnotatedTransactions,
+      pendingReview: currentStats.totalTransactions - nextAnnotatedTransactions,
+      totalIncomeKobo: (BigInt(currentStats.totalIncomeKobo) - previousIncome + nextIncome).toString(),
+      totalDBEKobo: (BigInt(currentStats.totalDBEKobo) - previousDBE + nextDBE).toString(),
+    };
+  };
+
+  const handleSave = async (status: AnnotationStatusType = "COMPLETE") => {
+    if (!selectedTxn || !activeWorkspaceId) return;
+    const previousTransactions = transactions;
+    const previousStats = stats;
+    const previousSelectedTxn = selectedTxn;
+    const previousPanelState = panelOpen;
+    const optimisticAnnotation = buildAnnotationPayload(selectedTxn, status);
+    const isDebit = isDebitTxn(selectedTxn);
+    const resolvedTaxableStatus = optimisticAnnotation.taxableStatus;
+
+    const optimisticTransactions = transactions.map((txn) =>
+      txn.id === selectedTxn.id
+        ? {
+            ...txn,
+            annotation: optimisticAnnotation,
+          }
+        : txn
+    );
+
+    setTransactions(optimisticTransactions);
+    setStats((currentStats) => applyOptimisticStats(currentStats, selectedTxn, optimisticAnnotation));
+    setPendingSaveIds((current) => ({ ...current, [selectedTxn.id]: true }));
+
+    const nextUnannotated = optimisticTransactions.find(
+      (t) => t.id !== selectedTxn.id && isPendingAnnotation(t.annotation)
+    );
+    if (nextUnannotated) {
+      setSelectedTxn(nextUnannotated);
+      setPanelOpen(true);
+    } else {
+      setSelectedTxn(null);
+      setPanelOpen(false);
+    }
 
     try {
       const res = await fetch("/api/annotations", {
@@ -205,7 +303,7 @@ export default function AnnotationsPage() {
           action: "upsert",
           transactionId: selectedTxn.id,
           taxableStatus: resolvedTaxableStatus,
-          taxableAmount: undefined,
+          taxableAmount: optimisticAnnotation.taxableAmount ?? undefined,
           taxCategory: isDebit ? "UNCLASSIFIED" : formCategory,
           reason: formReason || undefined,
           isDebit,
@@ -215,8 +313,9 @@ export default function AnnotationsPage() {
 
       if (res.ok) {
         const savedAnnotation = await res.json();
-        const updatedTransactions = transactions.map((txn) =>
-          txn.id === selectedTxn.id
+        setTransactions((currentTransactions) =>
+          currentTransactions.map((txn) =>
+            txn.id === previousSelectedTxn.id
             ? {
                 ...txn,
                 annotation: {
@@ -233,36 +332,30 @@ export default function AnnotationsPage() {
                 },
               }
             : txn
+          )
         );
-
-        setTransactions(updatedTransactions);
-
-        const updatedSelectedTxn = updatedTransactions.find((txn) => txn.id === selectedTxn.id) || null;
-        setSelectedTxn(updatedSelectedTxn);
-        void loadStats(activeWorkspaceId);
-
-        // Move to next unannotated transaction
-        const nextUnannotated = updatedTransactions.find(
-          (t) => t.id !== selectedTxn.id && !t.annotation
-        );
-        if (nextUnannotated) {
-          setSelectedTxn(nextUnannotated);
-        } else {
-          setPanelOpen(false);
-        }
+      } else {
+        throw new Error("Failed to save annotation");
       }
     } catch {
-      // Error handling
+      setTransactions(previousTransactions);
+      setStats(previousStats);
+      setSelectedTxn(previousSelectedTxn);
+      setPanelOpen(previousPanelState);
     } finally {
-      setSaving(false);
+      setPendingSaveIds((current) => {
+        const next = { ...current };
+        delete next[previousSelectedTxn.id];
+        return next;
+      });
     }
   };
 
   // Filter transactions based on active tab AND type filter
   const filtered = transactions.filter((t) => {
     // Tab filter
-    if (activeTab === "unannotated" && t.annotation?.status === "COMPLETE") return false;
-    if (activeTab === "completed" && t.annotation?.status !== "COMPLETE") return false;
+    if (activeTab === "unannotated" && isCompleteAnnotation(t.annotation)) return false;
+    if (activeTab === "completed" && !isCompleteAnnotation(t.annotation)) return false;
 
     // Credit / Debit type filter
     if (txnTypeFilter === "credit" && isDebitTxn(t)) return false;
@@ -609,17 +702,17 @@ export default function AnnotationsPage() {
               <button
                 className="anno-complete-btn"
                 onClick={() => handleSave("COMPLETE")}
-                disabled={saving}
+                disabled={!!(selectedTxn && pendingSaveIds[selectedTxn.id])}
               >
                 <span className="material-symbols-outlined" style={{ fontSize: 16 }}>check</span>
-                {saving ? "Saving..." : "Complete Annotation"}
+                {selectedTxn && pendingSaveIds[selectedTxn.id] ? "Saving..." : "Complete Annotation"}
               </button>
               <div className="anno-panel-actions" style={{ justifyContent: "center" }}>
                 <button
-                  className="anno-secondary-btn"
-                  style={{ flex: "none", width: "146px" }}
-                  onClick={() => {
-                    const next = transactions.find((t) => t.id !== selectedTxn.id && !t.annotation);
+                    className="anno-secondary-btn"
+                    style={{ flex: "none", width: "146px" }}
+                    onClick={() => {
+                    const next = transactions.find((t) => t.id !== selectedTxn.id && isPendingAnnotation(t.annotation));
                     if (next) setSelectedTxn(next);
                     else setPanelOpen(false);
                   }}
