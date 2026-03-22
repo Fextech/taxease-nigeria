@@ -9,6 +9,11 @@ FROM base AS builder
 
 WORKDIR /app
 
+RUN apt-get update && apt-get install -y \
+    openssl \
+    --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json ./
 COPY apps/api/package.json ./apps/api/package.json
 COPY apps/worker/package.json ./apps/worker/package.json
@@ -18,7 +23,7 @@ RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-RUN pnpm --filter @banklens/worker build
+RUN pnpm --filter @banklens/shared build && pnpm --filter @banklens/worker build
 
 FROM node:20-bookworm-slim AS runner
 
@@ -60,6 +65,7 @@ RUN apt-get update && apt-get install -y \
     libxrender1 \
     libxss1 \
     libxtst6 \
+    openssl \
     xdg-utils \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
@@ -70,5 +76,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/worker/dist ./apps/worker/dist
 COPY --from=builder /app/apps/worker/package.json ./apps/worker/package.json
 COPY --from=builder /app/apps/api/prisma ./apps/api/prisma
+COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
+COPY --from=builder /app/packages/shared/package.json ./packages/shared/package.json
 
 CMD ["node", "apps/worker/dist/worker.js"]
