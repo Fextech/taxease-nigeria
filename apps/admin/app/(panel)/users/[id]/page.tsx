@@ -1,21 +1,52 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+
+function OpenTicketBadge({ count }: { count: number }) {
+  if (count < 1) return null;
+
+  return (
+    <span
+      title={`${count} open support ticket${count === 1 ? "" : "s"}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "4px 10px",
+        borderRadius: 999,
+        background: "rgba(239, 68, 68, 0.14)",
+        color: "#fca5a5",
+        border: "1px solid rgba(239, 68, 68, 0.28)",
+        fontSize: 11,
+        fontWeight: 700,
+        lineHeight: 1,
+      }}
+    >
+      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+        mail
+      </span>
+      {count}
+    </span>
+  );
+}
 
 export default function UserDetailsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const [activeTab, setActiveTab] = useState("User Profile");
+  const requestedTab = searchParams.get("tab") || "User Profile";
+  const [activeTab, setActiveTab] = useState(requestedTab);
 
   const { data: user, isLoading, refetch } = trpc.admin.users.getUserDetails.useQuery({ id });
 
   const [showMessageModal, setShowMessageModal] = useState(false);
   const [messageSubject, setMessageSubject] = useState("");
   const [messageBody, setMessageBody] = useState("");
+  const [selectedMessageLogId, setSelectedMessageLogId] = useState<string | null>(null);
 
   const [giftCreditsAmount, setGiftCreditsAmount] = useState(1);
   const [giftWorkspaceId, setGiftWorkspaceId] = useState("");
@@ -26,6 +57,10 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
   const { mutateAsync: forceLogout, isPending: isLoggingOut } = trpc.admin.users.forceLogout.useMutation();
   const { mutateAsync: sendMessage, isPending: isSendingMessage } = trpc.admin.users.sendMessage.useMutation();
   const { mutateAsync: giftCredit, isPending: isGifting } = trpc.admin.users.giftCredit.useMutation();
+  const { data: messageLogData, refetch: refetchMessageLog } = trpc.admin.users.getUserMessageLog.useQuery(
+    { userId: id, limit: 100 },
+    { enabled: activeTab === "Message Log" }
+  );
 
   // Set default workspace for gifting
   use(params);
@@ -36,6 +71,25 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
   // Actually, we need to show the unmasked email if requested
   const { mutateAsync: revealEmail } = trpc.admin.users.revealEmail.useMutation();
   const [revealedEmail, setRevealedEmail] = useState<string | null>(null);
+
+  useEffect(() => {
+    setActiveTab(requestedTab);
+  }, [requestedTab]);
+
+  useEffect(() => {
+    if (!messageLogData || messageLogData.length === 0) {
+      setSelectedMessageLogId(null);
+      return;
+    }
+
+    const selectedStillExists = selectedMessageLogId
+      ? messageLogData.some((item: any) => item.id === selectedMessageLogId)
+      : false;
+
+    if (!selectedStillExists) {
+      setSelectedMessageLogId(messageLogData[0].id);
+    }
+  }, [messageLogData, selectedMessageLogId]);
 
   if (isLoading) {
     return <div style={{ color: "var(--admin-text-muted)" }}>Loading user details...</div>;
@@ -121,6 +175,7 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
     try {
       await sendMessage({ userId: id, subject: messageSubject, body: messageBody });
       toast.success("Message sent successfully");
+      refetchMessageLog();
       setShowMessageModal(false);
       setMessageSubject("");
       setMessageBody("");
@@ -151,6 +206,14 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
   const initials = (user.name || "U").substring(0, 2).toUpperCase();
   const isPro = user.workspaces?.some((ws: any) => ws.isUnlocked);
   const dynamicPlan = isPro ? "PRO" : "FREE";
+  const selectedMessage = messageLogData?.find((item: any) => item.id === selectedMessageLogId) || null;
+
+  const getDeliveryTone = (status: string) => {
+    if (status === "DELIVERED" || status === "OPENED" || status === "CLICKED") return "admin-badge--success";
+    if (status === "FAILED" || status === "BOUNCED" || status === "COMPLAINED" || status === "SUPPRESSED") return "admin-badge--danger";
+    if (status === "NOT_APPLICABLE") return "admin-badge--dim";
+    return "admin-badge--warning";
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
@@ -183,6 +246,7 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
           </div>
         </div>
         <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+          <OpenTicketBadge count={user.openTicketCount || 0} />
           <button onClick={() => setShowMessageModal(true)} className="admin-btn admin-btn--primary">
             Send Message
           </button>
@@ -191,7 +255,7 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--admin-border)" }}>
-        {["User Profile", "Transactions", "Support Tickets"].map((tab) => (
+        {["User Profile", "Transactions", "Support Tickets", "Message Log"].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -207,7 +271,10 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
               fontFamily: "var(--font-sans)",
             }}
           >
-            {tab}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              {tab}
+              {tab === "Support Tickets" && <OpenTicketBadge count={user.openTicketCount || 0} />}
+            </span>
           </button>
         ))}
       </div>
@@ -421,6 +488,15 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
 
       {activeTab === "Support Tickets" && (
         <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="admin-card" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <h3 style={{ margin: "0 0 6px", fontSize: 16, color: "var(--admin-text)" }}>Support Tickets</h3>
+              <p style={{ margin: 0, fontSize: 13, color: "var(--admin-text-muted)" }}>
+                Unresolved tickets that still need attention for this user.
+              </p>
+            </div>
+            <OpenTicketBadge count={user.openTicketCount || 0} />
+          </div>
           {!user.supportTickets || user.supportTickets.length === 0 ? (
             <div className="admin-card">
               <p style={{ color: "var(--admin-text-muted)", margin: 0 }}>No support tickets found for this user.</p>
@@ -446,6 +522,148 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
           )}
         </div>
       )}
+
+      {activeTab === "Message Log" && (
+        <div style={{ display: "grid", gridTemplateColumns: "1.2fr 0.8fr", gap: 20 }}>
+          <div className="admin-card" style={{ padding: 0, overflow: "hidden" }}>
+            {!messageLogData || messageLogData.length === 0 ? (
+              <div style={{ padding: 32 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: "var(--admin-text)", margin: "0 0 8px" }}>Message Log</h3>
+                <p style={{ color: "var(--admin-text-muted)", margin: 0 }}>
+                  No direct messages or broadcasts have been logged for this user yet.
+                </p>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column" }}>
+                {messageLogData.map((item: any, index: number) => (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: 16,
+                      padding: "16px 20px",
+                      borderBottom: index === messageLogData.length - 1 ? "none" : "1px solid var(--admin-border)",
+                      background: item.id === selectedMessageLogId ? "rgba(0, 240, 255, 0.06)" : "transparent",
+                    }}
+                  >
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                        <span className={`admin-badge ${item.category === "BROADCAST" ? "admin-badge--warning" : "admin-badge--pro"}`}>
+                          {item.category}
+                        </span>
+                        <span className="admin-badge admin-badge--dim">{item.channel}</span>
+                        <span className={`admin-badge ${getDeliveryTone(item.deliveryStatus)}`}>
+                          {item.deliveryStatus}
+                        </span>
+                      </div>
+
+                      <div style={{ minWidth: 0 }}>
+                        <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "var(--admin-text)" }}>
+                          {item.subject}
+                        </p>
+                        <p
+                          style={{
+                            margin: "6px 0 0",
+                            fontSize: 12,
+                            color: "var(--admin-text-muted)",
+                            whiteSpace: "nowrap",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                          }}
+                        >
+                          {item.createdBy?.name || item.createdBy?.email} · {new Date(item.createdAt).toLocaleString("en-NG")}
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => setSelectedMessageLogId(item.id)}
+                      className="admin-btn admin-btn--secondary admin-btn--sm"
+                    >
+                      Preview
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="admin-card" style={{ minHeight: 420 }}>
+            {!selectedMessage ? (
+              <div style={{ color: "var(--admin-text-muted)" }}>Select a message to preview its content and delivery details.</div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                    <span className={`admin-badge ${selectedMessage.category === "BROADCAST" ? "admin-badge--warning" : "admin-badge--pro"}`}>
+                      {selectedMessage.category}
+                    </span>
+                    <span className="admin-badge admin-badge--dim">{selectedMessage.channel}</span>
+                    <span className={`admin-badge ${getDeliveryTone(selectedMessage.deliveryStatus)}`}>
+                      {selectedMessage.deliveryStatus}
+                    </span>
+                  </div>
+
+                  <h3 style={{ margin: 0, fontSize: 18, color: "var(--admin-text)" }}>{selectedMessage.subject}</h3>
+                  <p style={{ margin: 0, fontSize: 12, color: "var(--admin-text-muted)" }}>
+                    Sent by {selectedMessage.createdBy?.name || selectedMessage.createdBy?.email} on {new Date(selectedMessage.createdAt).toLocaleString("en-NG")}
+                  </p>
+                </div>
+
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, fontSize: 12 }}>
+                  <div>
+                    <p className="admin-kpi-label">Provider ID</p>
+                    <p style={{ margin: 0, color: "var(--admin-text)", wordBreak: "break-all" }}>{selectedMessage.resendEmailId || "Not available"}</p>
+                  </div>
+                  <div>
+                    <p className="admin-kpi-label">Last Event</p>
+                    <p style={{ margin: 0, color: "var(--admin-text)" }}>{selectedMessage.lastEventType || "Pending"}</p>
+                  </div>
+                  <div>
+                    <p className="admin-kpi-label">Delivered At</p>
+                    <p style={{ margin: 0, color: "var(--admin-text)" }}>
+                      {selectedMessage.deliveredAt ? new Date(selectedMessage.deliveredAt).toLocaleString("en-NG") : "Not delivered yet"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="admin-kpi-label">Opened At</p>
+                    <p style={{ margin: 0, color: "var(--admin-text)" }}>
+                      {selectedMessage.openedAt ? new Date(selectedMessage.openedAt).toLocaleString("en-NG") : "Not opened"}
+                    </p>
+                  </div>
+                </div>
+
+                {selectedMessage.failReason && (
+                  <div style={{ padding: 12, borderRadius: 12, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.18)" }}>
+                    <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: "#fca5a5" }}>Failure Reason</p>
+                    <p style={{ margin: "6px 0 0", fontSize: 13, color: "var(--admin-text)" }}>{selectedMessage.failReason}</p>
+                  </div>
+                )}
+
+                <div>
+                  <p className="admin-kpi-label">Message Preview</p>
+                  <div
+                    style={{
+                      marginTop: 8,
+                      padding: 16,
+                      borderRadius: 16,
+                      border: "1px solid var(--admin-border)",
+                      background: "rgba(255,255,255,0.02)",
+                      color: "var(--admin-text)",
+                      maxHeight: 360,
+                      overflow: "auto",
+                    }}
+                    dangerouslySetInnerHTML={{ __html: selectedMessage.body }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Message Modal */}
       {showMessageModal && (
         <div style={{
