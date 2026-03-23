@@ -14,6 +14,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
       allowDangerousEmailAccountLinking: true,
+      authorization: {
+        params: {
+          prompt: "select_account",
+        },
+      },
     }),
     Credentials({
       name: "Email",
@@ -138,7 +143,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           },
         });
 
-        if (existingUser?.isSuspended || existingUser?.deletedAt !== null) {
+        if (existingUser && (existingUser.isSuspended || existingUser.deletedAt !== null)) {
           return "/sign-in?error=AccountSuspended";
         }
 

@@ -30,6 +30,14 @@ function SignInContent() {
       .catch(() => setMaintenanceEnabled(false));
   }, []);
 
+  const handleGoogleSignIn = async () => {
+    await signIn(
+      "google",
+      { callbackUrl },
+      { prompt: "select_account" }
+    );
+  };
+
   const handleCredentialsSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
     setFormError("");
@@ -116,7 +124,7 @@ function SignInContent() {
         {maintenanceEnabled === false && (
           <button
             className="signin-google-btn"
-            onClick={() => signIn("google", { callbackUrl })}
+            onClick={handleGoogleSignIn}
             type="button"
           >
             <svg width="20" height="20" viewBox="0 0 24 24">
