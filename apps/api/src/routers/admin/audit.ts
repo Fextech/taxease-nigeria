@@ -72,6 +72,7 @@ export const adminAuditRouter = router({
                 cursor: z.string().optional(),
                 userId: z.string().optional(),
                 actionCode: z.string().optional(),
+                search: z.string().optional(),
             })
         )
         .query(async ({ ctx, input }) => {
@@ -79,15 +80,26 @@ export const adminAuditRouter = router({
                 throw new TRPCError({ code: 'FORBIDDEN', message: 'Insufficient permissions' });
             }
 
-            const { limit, cursor, userId, actionCode } = input;
+            const { limit, cursor, userId, actionCode, search } = input;
+
+            const where: any = {};
+            if (userId && userId !== 'ALL') {
+                where.userId = userId;
+            }
+            if (actionCode && actionCode !== 'ALL') {
+                where.action = actionCode;
+            }
+            if (search) {
+                where.OR = [
+                    { entityType: { contains: search, mode: 'insensitive' } },
+                    { user: { email: { contains: search, mode: 'insensitive' } } },
+                ];
+            }
 
             const items = await ctx.prisma.auditLog.findMany({
                 take: limit + 1,
                 cursor: cursor ? { id: cursor } : undefined,
-                where: {
-                    ...(userId && { userId }),
-                    ...(actionCode && { action: actionCode }),
-                },
+                where,
                 orderBy: { createdAt: 'desc' },
                 include: {
                     user: {

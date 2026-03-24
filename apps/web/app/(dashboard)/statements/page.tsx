@@ -7,6 +7,7 @@ import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 import { StatementUploader } from "@/components/dashboard/StatementUploader";
 import Lottie from "lottie-react";
 import searchDocAnimation from "../../../public/Search-Doc-Animation.json";
+import retryAnimation from "../../../public/retry-anima.json";
 
 const months = [
   { short: "JAN", full: "January" },
@@ -589,12 +590,25 @@ export default function StatementsPage() {
 
                   {(stmt.parseStatus === "PROCESSING" || stmt.parseStatus === "UPLOADED") && (
                     <div className="file-progress" style={{ marginTop: "16px", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                      <Lottie 
-                        animationData={searchDocAnimation} 
-                        loop={true} 
-                        style={{ height: 120, width: 120 }} 
-                      />
-                      <span className="file-status-text" style={{ marginTop: "0px", fontWeight: 500 }}>Analyzing statement...</span>
+                      {stmt.errorMessage?.includes("RETRYING") ? (
+                        <>
+                          <Lottie 
+                            animationData={retryAnimation} 
+                            loop={true} 
+                            style={{ height: 120, width: 120 }} 
+                          />
+                          <span className="file-status-text" style={{ marginTop: "0px", fontWeight: 500, color: "var(--te-warning, #f59e0b)" }}>Retrying, please wait...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Lottie 
+                            animationData={searchDocAnimation} 
+                            loop={true} 
+                            style={{ height: 120, width: 120 }} 
+                          />
+                          <span className="file-status-text" style={{ marginTop: "0px", fontWeight: 500 }}>Analyzing statement...</span>
+                        </>
+                      )}
                     </div>
                   )}
                   <button

@@ -57,7 +57,7 @@ export default function AuditLogsPage() {
   const { mutateAsync: exportLogs, isPending: isExporting } = trpc.admin.audit.exportLogs.useMutation();
 
   const { data: userData, isLoading: isUserLoading, refetch: refetchUser, isRefetching: isUserRefetching } = trpc.admin.audit.listUserLogs.useQuery(
-    { limit: 100, actionCode: filters.actionCode || undefined },
+    { limit: 100, actionCode: filters.actionCode || undefined, search: filters.search || undefined },
     { enabled: activeTab === "USER" }
   );
 
@@ -192,13 +192,28 @@ export default function AuditLogsPage() {
           onChange={(e) => setFilters({ ...filters, actionCode: e.target.value })}
         >
           <option value="ALL">All Actions</option>
-          <option value="USER_LOGGED_IN">User Logged In</option>
-          <option value="USER_SUSPENDED">User Suspended</option>
-          <option value="USER_DELETED">User Deleted</option>
-          <option value="REVEAL_EMAIL">Email Reveal</option>
-          <option value="TICKET_REPLY">Ticket Reply</option>
-          <option value="BROADCAST_SENT">Broadcast Sent</option>
-          <option value="AUDIT_EXPORT">Audit Export</option>
+          {activeTab === "ADMIN" ? (
+            <>
+              <option value="USER_LOGGED_IN">User Logged In</option>
+              <option value="USER_SUSPENDED">User Suspended</option>
+              <option value="USER_DELETED">User Deleted</option>
+              <option value="REVEAL_EMAIL">Email Reveal</option>
+              <option value="TICKET_REPLY">Ticket Reply</option>
+              <option value="BROADCAST_SENT">Broadcast Sent</option>
+              <option value="AUDIT_EXPORT">Audit Export</option>
+            </>
+          ) : (
+            <>
+              <option value="CREATE">Create Workspace</option>
+              <option value="LOCK">Lock Workspace</option>
+              <option value="UPLOAD">Upload Statement</option>
+              <option value="DELETE">Delete Statement</option>
+              <option value="UPSERT">Annotate Transaction</option>
+              <option value="BULK_UPSERT">Bulk Annotate</option>
+              <option value="GENERATE_REPORT">Generate Report</option>
+              <option value="PAYMENT_VERIFIED">Payment Verified</option>
+            </>
+          )}
         </select>
         <div style={{ marginLeft: "auto", fontSize: 13, color: "var(--admin-text-muted)" }}>
           Showing latest {activeTab === "ADMIN" ? data?.items.length : userData?.items.length || 0} events
@@ -207,7 +222,10 @@ export default function AuditLogsPage() {
 
       <div className="audit-tabs" style={{ display: 'flex', gap: '20px', marginBottom: '20px', borderBottom: '1px solid var(--admin-border)' }}>
         <button
-          onClick={() => setActiveTab("ADMIN")}
+          onClick={() => {
+            setActiveTab("ADMIN");
+            setFilters(prev => ({ ...prev, actionCode: "ALL" }));
+          }}
           style={{
             padding: '10px 16px',
             background: 'none',
@@ -222,7 +240,10 @@ export default function AuditLogsPage() {
           Administrative Actions
         </button>
         <button
-          onClick={() => setActiveTab("USER")}
+          onClick={() => {
+            setActiveTab("USER");
+            setFilters(prev => ({ ...prev, actionCode: "ALL" }));
+          }}
           style={{
             padding: '10px 16px',
             background: 'none',

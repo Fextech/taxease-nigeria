@@ -300,23 +300,27 @@ const parseStatementWorker = new Worker(
 
             try {
                 if (statement) {
+                    const willRetry = job.attemptsMade < (job.opts.attempts || 1);
+                    
                     await prisma.statement.update({
                         where: { id: statementId },
                         data: {
-                            parseStatus: 'ERROR',
-                            errorMessage: error instanceof Error ? error.message : String(error),
+                            parseStatus: willRetry ? 'PROCESSING' : 'ERROR',
+                            errorMessage: willRetry ? 'RETRYING' : (error instanceof Error ? error.message : String(error)),
                         },
                     });
 
-                    await prisma.notification.create({
-                        data: {
-                            userId: statement.workspace.userId,
-                            title: 'Statement Processing Failed',
-                            message: `Failed to process ${statement.originalFilename}.`,
-                            type: 'ERROR',
-                            link: '/statements'
-                        }
-                    });
+                    if (!willRetry) {
+                        await prisma.notification.create({
+                            data: {
+                                userId: statement.workspace.userId,
+                                title: 'Statement Processing Failed',
+                                message: `Failed to process ${statement.originalFilename}.`,
+                                type: 'ERROR',
+                                link: '/statements'
+                            }
+                        });
+                    }
                 }
             } catch {
                 logger.error({ statementId }, 'Failed to update statement error status');

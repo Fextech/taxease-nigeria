@@ -211,8 +211,8 @@ export async function POST(request: Request) {
                     entityType: 'Workspace',
                     entityId: workspace.id,
                     action: 'GENERATE_REPORT',
-                    metadata: { taxYear: workspace.taxYear }
-                } as any // The metadata cast assumes we update AuditLog schema, but AuditLog doesn't have metadata! 
+                    newValue: { taxYear: workspace.taxYear }
+                }
             });
 
             if (!workspace || workspace.userId !== session.user.id) {
