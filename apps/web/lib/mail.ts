@@ -3,9 +3,10 @@ import { Resend } from "resend";
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 const rawEmailFrom = process.env.EMAIL_FROM || "onboarding@resend.dev";
+const senderName = process.env.SENDER_NAME || "Banklens";
 const FROM_EMAIL = rawEmailFrom.includes("<")
   ? rawEmailFrom
-  : `Banklens <${rawEmailFrom}>`;
+  : `${senderName} <${rawEmailFrom}>`;
 
 const LOGO_SVG = `<svg version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 1500 600" width="180" height="72" style="display:block;">
 <style type="text/css">.st0{fill:#2D484C;}.st1{fill:#E39F51;}.st2{fill:#FFFFFF;stroke:#2D484C;stroke-miterlimit:10;}.st3{fill:#E2EBEE;}.st4{fill:#A4BCCA;}.st5{fill:#00FFFF;fill-opacity:0.1;}.st6{fill:#22494C;}</style>
@@ -190,6 +191,126 @@ export async function sendPasswordResetEmail(email: string, token: string) {
           Banklens Nigeria — Simplify your tax returns
         </p>
       </div>
+    `,
+  });
+}
+
+export async function sendPasswordChangedEmail(email: string, name: string) {
+  const firstName = name?.split(" ")[0] || "there";
+  const supportEmail = process.env.SUPPORT_EMAIL || "support@flowiselabs.com";
+  const appUrl = process.env.NEXTAUTH_URL || "https://app.banklensng.com";
+  const changedAt = new Date().toLocaleString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Africa/Lagos",
+    timeZoneName: "short",
+  });
+
+  await resend.emails.send({
+    from: FROM_EMAIL,
+    to: email,
+    subject: "Your Banklens password was changed",
+    html: `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Password Changed</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f0f4f5;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f0f4f5;padding:40px 0;">
+    <tr>
+      <td align="center">
+        <table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+          <!-- Header -->
+          <tr>
+            <td style="background:linear-gradient(135deg,#2D484C 0%,#1a3639 100%);padding:36px 40px 28px;text-align:center;">
+              <div style="background-color:#ffffff;border-radius:12px;padding:16px 24px;display:inline-block;box-shadow:0 2px 8px rgba(0,0,0,0.15);">
+                ${LOGO_SVG}
+              </div>
+            </td>
+          </tr>
+
+          <!-- Alert banner -->
+          <tr>
+            <td style="background:#fff7ed;border-left:4px solid #E39F51;padding:16px 40px;">
+              <p style="margin:0;font-size:13px;color:#92400e;font-weight:600;">
+                🔐 Security Notice — Password Changed
+              </p>
+            </td>
+          </tr>
+
+          <!-- Main content -->
+          <tr>
+            <td style="padding:36px 40px 32px;">
+              <h1 style="margin:0 0 12px;font-size:22px;font-weight:700;color:#1a3639;">
+                Hi ${firstName},
+              </h1>
+              <p style="margin:0 0 20px;font-size:15px;color:#4b5563;line-height:1.7;">
+                We're letting you know that the password for your Banklens account was successfully changed on <strong>${changedAt}</strong>.
+              </p>
+
+              <p style="margin:0 0 24px;font-size:15px;color:#4b5563;line-height:1.7;">
+                If you made this change, no further action is needed.
+              </p>
+
+              <!-- 2FA tip -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:24px;background:#f0fdf4;border-radius:10px;border:1px solid #bbf7d0;">
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <p style="margin:0 0 6px;font-size:14px;font-weight:600;color:#15803d;">🛡️ Keep your account extra secure</p>
+                    <p style="margin:0 0 12px;font-size:13px;color:#6b7280;line-height:1.6;">
+                      Enable two-factor authentication (2FA) so that even if your password is ever compromised, no one can access your account without your authenticator app.
+                    </p>
+                    <a href="${appUrl}/settings?tab=security" style="display:inline-block;padding:9px 20px;background:#15803d;color:#ffffff;border-radius:8px;text-decoration:none;font-weight:600;font-size:13px;">
+                      Enable 2FA →
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              <!-- Warning box -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;background:#fef2f2;border-radius:10px;border:1px solid #fecaca;">
+                <tr>
+                  <td style="padding:16px 20px;">
+                    <p style="margin:0 0 6px;font-size:14px;font-weight:600;color:#b91c1c;">⚠️ Didn't make this change?</p>
+                    <p style="margin:0;font-size:13px;color:#6b7280;line-height:1.6;">
+                      If you did not change your password, your account may be compromised. Please
+                      <a href="${appUrl}/forgot-password" style="color:#b91c1c;font-weight:600;text-decoration:none;">reset your password immediately</a>
+                      and contact our support team.
+                    </p>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin:0;font-size:14px;color:#6b7280;line-height:1.7;">
+                Need help? Contact us at
+                <a href="mailto:${supportEmail}" style="color:#2D484C;text-decoration:none;font-weight:600;">${supportEmail}</a>.
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="padding:20px 40px 28px;border-top:1px solid #e5e7eb;">
+              <p style="margin:0;font-size:12px;color:#9ca3af;text-align:center;line-height:1.6;">
+                © ${new Date().getFullYear()} Banklens Nigeria by <a href="https://www.flowiselabs.com" style="color:#9ca3af;text-decoration:underline;">Flowiselabs</a> · All rights reserved<br/>
+                You're receiving this because a password change was made to your account.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
     `,
   });
 }

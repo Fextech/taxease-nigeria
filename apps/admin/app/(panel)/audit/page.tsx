@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { format } from "date-fns";
 import {
   useReactTable,
   getCoreRowModel,
@@ -22,21 +23,43 @@ type AuditLogItem = {
   admin?: { fullName: string } | null;
 };
 
+// Assuming a similar type for UserLogItem, or extending AuditLogItem for user logs
+// This type definition is inferred from the provided tbody rendering logic
+type UserLogItem = {
+  id: string;
+  createdAt: string | Date;
+  user?: { name: string | null; email: string } | null;
+  action: string; // Renamed from actionCode
+  entityType: string | null; // Renamed from targetEntity
+  entityId: string | null;
+  metadata: any; // Corresponds to previousValue/newValue
+  // Other fields like ipAddress might be present but not explicitly used in the provided tbody
+};
+
+
 const columnHelper = createColumnHelper<AuditLogItem>();
 
-export default function AuditLogPage() {
+export default function AuditLogsPage() {
+  const [activeTab, setActiveTab] = useState<"ADMIN" | "USER">("ADMIN");
+
+  const [dateRange, setDateRange] = useState<[Date | null, Date | null]>([null, null]);
   const [filters, setFilters] = useState({
     actionCode: "ALL",
     search: "",
   });
 
-  const { data, isLoading } = trpc.admin.audit.listLogs.useQuery({
+  const { data, isLoading, refetch, isRefetching } = trpc.admin.audit.listLogs.useQuery({
     limit: 50,
     actionCode: filters.actionCode,
     search: filters.search || undefined,
-  }, { keepPreviousData: true } as any);
+  }, { enabled: activeTab === "ADMIN" } as any);
 
   const { mutateAsync: exportLogs, isPending: isExporting } = trpc.admin.audit.exportLogs.useMutation();
+
+  const { data: userData, isLoading: isUserLoading, refetch: refetchUser, isRefetching: isUserRefetching } = trpc.admin.audit.listUserLogs.useQuery(
+    { limit: 100, actionCode: filters.actionCode || undefined },
+    { enabled: activeTab === "USER" }
+  );
 
   const handleExport = async (format: 'csv' | 'json') => {
     try {
@@ -86,7 +109,7 @@ export default function AuditLogPage() {
     columnHelper.accessor("actionCode", {
       header: "Action",
       cell: (info) => (
-        <span className="admin-badge" style={{ 
+        <span className="admin-badge" style={{
             backgroundColor: `color-mix(in srgb, ${getActionColor(info.getValue())} 15%, transparent)`,
             color: getActionColor(info.getValue()),
             border: `1px solid color-mix(in srgb, ${getActionColor(info.getValue())} 30%, transparent)`
@@ -178,15 +201,46 @@ export default function AuditLogPage() {
           <option value="AUDIT_EXPORT">Audit Export</option>
         </select>
         <div style={{ marginLeft: "auto", fontSize: 13, color: "var(--admin-text-muted)" }}>
-          Showing latest {data?.items.length || 0} events
+          Showing latest {activeTab === "ADMIN" ? data?.items.length : userData?.items.length || 0} events
         </div>
+      </div>
+
+      <div className="audit-tabs" style={{ display: 'flex', gap: '20px', marginBottom: '20px', borderBottom: '1px solid var(--admin-border)' }}>
+        <button
+          onClick={() => setActiveTab("ADMIN")}
+          style={{
+            padding: '10px 16px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === "ADMIN" ? '2px solid var(--te-primary)' : '2px solid transparent',
+            color: activeTab === "ADMIN" ? 'var(--te-primary)' : 'var(--admin-text-muted)',
+            fontWeight: activeTab === "ADMIN" ? 600 : 500,
+            cursor: 'pointer',
+            fontSize: '14px'
+          }}
+        >
+          Administrative Actions
+        </button>
+        <button
+          onClick={() => setActiveTab("USER")}
+          style={{
+            padding: '10px 16px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === "USER" ? '2px solid var(--te-primary)' : '2px solid transparent',
+            color: activeTab === "USER" ? 'var(--te-primary)' : 'var(--admin-text-muted)',
+            fontWeight: activeTab === "USER" ? 600 : 500,
+            cursor: 'pointer',
+            fontSize: '14px'
+          }}
+        >
+          User Activity
+        </button>
       </div>
 
       {/* Table */}
       <div className="admin-card" style={{ padding: 0, overflow: "hidden" }}>
-        {isLoading ? (
-          <div style={{ padding: 40, textAlign: "center", color: "var(--admin-text-muted)" }}>Loading audit logs...</div>
-        ) : (
+        {activeTab === "ADMIN" ? (
           <table className="admin-table">
             <thead>
               {table.getHeaderGroups().map((headerGroup) => (
@@ -202,10 +256,17 @@ export default function AuditLogPage() {
               ))}
             </thead>
             <tbody>
-              {table.getRowModel().rows.length === 0 ? (
+              {isLoading || isRefetching ? (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: "center", padding: "40px" }}>
+                    <span className="material-symbols-outlined status-spin" style={{ fontSize: 24, color: "var(--te-primary)" }}>sync</span>
+                    <p style={{ marginTop: 8, color: "var(--admin-text-muted)" }}>Loading admin audit records...</p>
+                  </td>
+                </tr>
+              ) : table.getRowModel().rows.length === 0 ? (
                 <tr>
                   <td colSpan={5} style={{ textAlign: "center", padding: 40, color: "var(--admin-text-muted)" }}>
-                    No matching logs found.
+                    No matching admin logs found.
                   </td>
                 </tr>
               ) : (
@@ -216,6 +277,66 @@ export default function AuditLogPage() {
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        ) : (
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Date & Time</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Entity</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isUserLoading || isUserRefetching ? (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: "center", padding: "40px" }}>
+                    <span className="material-symbols-outlined status-spin" style={{ fontSize: 24, color: "var(--te-primary)" }}>sync</span>
+                    <p style={{ marginTop: 8, color: "var(--admin-text-muted)" }}>Loading user activity records...</p>
+                  </td>
+                </tr>
+              ) : !userData?.items || userData.items.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: "center", padding: 40, color: "var(--admin-text-muted)" }}>
+                    No matching user activity found.
+                  </td>
+                </tr>
+              ) : (
+                userData.items.map((log: any) => (
+                  <tr key={log.id}>
+                    <td>
+                      {format(new Date(log.createdAt), "MMM d, yyyy")}
+                      <div style={{ fontSize: 11, color: "var(--admin-text-muted)" }}>{format(new Date(log.createdAt), "h:mm a")}</div>
+                    </td>
+                    <td>
+                      {log.user ? (
+                        <>
+                          <div style={{ fontWeight: 500 }}>{log.user.name || "Unknown"}</div>
+                          <div style={{ fontSize: 11, color: "var(--admin-text-muted)" }}>{log.user.email}</div>
+                        </>
+                      ) : (
+                        <span style={{ color: "var(--admin-text-muted)" }}>System</span>
+                      )}
+                    </td>
+                    <td>
+                      <span className="audit-action-badge">{log.action}</span>
+                    </td>
+                    <td>
+                      <span style={{ fontFamily: "monospace", fontSize: 12, background: "var(--admin-bg)", padding: "2px 6px", borderRadius: 4, border: "1px solid var(--admin-border)" }}>
+                        {log.entityType} {log.entityId ? `(#${log.entityId.slice(-6)})` : ''}
+                      </span>
+                    </td>
+                    <td>
+                      <div style={{ fontSize: 12, color: "var(--admin-text-muted)", maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {log.metadata ? JSON.stringify(log.metadata) : "—"}
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}

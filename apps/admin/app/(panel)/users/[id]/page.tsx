@@ -335,7 +335,7 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
                             </span>
                           </div>
                           <p style={{ fontSize: 12, color: "var(--admin-text-muted)", margin: "4px 0 0" }}>
-                            {ws.statements.length} Statements Uploaded
+                            {ws.statements.length} Statements Uploaded &middot; {ws.reportGenerationCount || 0} Reports Generated
                           </p>
                         </div>
                       </div>

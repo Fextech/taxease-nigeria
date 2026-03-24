@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import bcrypt from "bcryptjs";
+import { sendPasswordChangedEmail } from '@/lib/mail';
 
 /**
  * POST /api/settings
@@ -106,6 +107,13 @@ export async function POST(request: Request) {
                 where: { id: session.user.id },
                 data: { password: hashedPassword },
             });
+
+            // Send security notification email (fire-and-forget)
+            if (user.email) {
+                sendPasswordChangedEmail(user.email, user.name ?? "").catch((err) =>
+                    console.error("Failed to send password changed email:", err)
+                );
+            }
 
             return NextResponse.json({ success: true, message: "Password updated successfully" });
         }

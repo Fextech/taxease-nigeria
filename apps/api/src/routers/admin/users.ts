@@ -215,6 +215,7 @@ export const adminUsersRouter = router({
                     status: ws.status,
                     isUnlocked: ws.isUnlocked,
                     statementCredits: ws.statementCredits,
+                    reportGenerationCount: ws.reportGenerationCount,
                     createdAt: ws.createdAt.toISOString(),
                     statements: ws.statements.map((s) => ({
                         id: s.id,

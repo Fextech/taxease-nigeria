@@ -103,6 +103,7 @@ model Workspace {
   deletedAt            DateTime?
   isUnlocked           Boolean          @default(false)
   statementCredits     Int              @default(0)
+  reportGenerationCount Int             @default(0)
   unlockMethod         String?
   unlockedMonths       Json?
   creditPurchases      CreditPurchase[]

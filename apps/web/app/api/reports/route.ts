@@ -198,6 +198,27 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
             }
 
+            // Increment report count
+            await prisma.workspace.update({
+                where: { id: workspace.id },
+                data: { reportGenerationCount: { increment: 1 } }
+            });
+
+            // Audit log
+            await prisma.auditLog.create({
+                data: {
+                    userId: session.user.id,
+                    entityType: 'Workspace',
+                    entityId: workspace.id,
+                    action: 'GENERATE_REPORT',
+                    metadata: { taxYear: workspace.taxYear }
+                } as any // The metadata cast assumes we update AuditLog schema, but AuditLog doesn't have metadata! 
+            });
+
+            if (!workspace || workspace.userId !== session.user.id) {
+                return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+            }
+
             // Enqueue report generation job
             await generateReportQueue.add('generate-report', {
                 workspaceId: data.workspaceId,

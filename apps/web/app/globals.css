@@ -1090,10 +1090,10 @@
 .anno-empty-desc { font-size: 14px; color: var(--te-text-muted); max-width: 400px; margin: 0 auto; line-height: 1.6; }
 
 /* Table */
-.txn-panel {
-  background: var(--te-surface); border-radius: 12px;
-  border: 1px solid rgba(35,73,77,0.05); box-shadow: 0 1px 3px rgba(0,0,0,0.04);
-  overflow: hidden;
+.txn-list {
+  max-height: 560px;
+  overflow-y: auto;
+  position: relative;
 }
 .txn-header-bar {
   display: flex; align-items: center; justify-content: space-between;
@@ -1127,6 +1127,8 @@
 .anno-row { cursor: pointer; transition: background 0.1s; }
 .anno-row:hover { background: var(--te-surface-hover); }
 .anno-row--selected { background: rgba(35,73,77,0.04); }
+.anno-row--checked { background: rgba(227,159,81,0.08); }
+.anno-row--checked:hover { background: rgba(227,159,81,0.14); }
 .anno-checkbox { accent-color: var(--te-primary); }
 .anno-date { font-size: 12px; font-weight: 500; color: var(--te-text-secondary); }
 .anno-desc { display: block; font-weight: 600; color: var(--te-text); }

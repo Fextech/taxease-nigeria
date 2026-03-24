@@ -633,6 +633,7 @@ function SettingsContent() {
                         placeholder="••••••••"
                         className="settings-input w-full"
                         required
+                        autoComplete="current-password"
                         style={{ paddingRight: "40px" }}
                       />
                       <button
@@ -659,6 +660,7 @@ function SettingsContent() {
                       className="settings-input w-full"
                       required
                       minLength={8}
+                      autoComplete="new-password"
                       style={{ paddingRight: "40px" }}
                     />
                     <button
@@ -685,6 +687,7 @@ function SettingsContent() {
                       className="settings-input w-full"
                       required
                       minLength={8}
+                      autoComplete="new-password"
                       style={{ paddingRight: "40px" }}
                     />
                   </div>
