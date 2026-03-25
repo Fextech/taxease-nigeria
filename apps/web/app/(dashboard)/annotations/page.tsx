@@ -114,7 +114,9 @@ export default function AnnotationsPage() {
   const [pendingSaveIds, setPendingSaveIds] = useState<Record<string, true>>({});
   const [currentPage, setCurrentPage] = useState(1);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
-  const [confirmDeleteMonth, setConfirmDeleteMonth] = useState<number | null>(null);
+
+  // Month filtering state
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
 
   // Multi-select state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -144,13 +146,13 @@ export default function AnnotationsPage() {
     }
   }, []);
 
-  const loadTransactions = useCallback(async (wsId: string, page: number) => {
+  const loadTransactions = useCallback(async (wsId: string, page: number, months: number[] = []) => {
     setLoading(true);
     try {
       const txRes = await fetch("/api/annotations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "list", workspaceId: wsId, page, pageSize: PAGE_SIZE }),
+        body: JSON.stringify({ action: "list", workspaceId: wsId, page, pageSize: PAGE_SIZE, months }),
       });
 
       if (txRes.ok) {
@@ -166,13 +168,13 @@ export default function AnnotationsPage() {
     }
   }, []);
 
-  const loadUnannotated = useCallback(async (wsId: string, page: number) => {
+  const loadUnannotated = useCallback(async (wsId: string, page: number, months: number[] = []) => {
     setUnannotatedLoading(true);
     try {
       const res = await fetch("/api/annotations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "listUnannotated", workspaceId: wsId, page }),
+        body: JSON.stringify({ action: "listUnannotated", workspaceId: wsId, page, months }),
       });
       if (res.ok) {
         const data = await res.json();
@@ -197,6 +199,7 @@ export default function AnnotationsPage() {
       setSelectedTxn(null);
       setPanelOpen(false);
       setSelectedIds(new Set());
+      setSelectedMonths([]);
       void loadStats(activeWorkspaceId);
     } else {
       setTransactions([]);
@@ -207,15 +210,22 @@ export default function AnnotationsPage() {
 
   useEffect(() => {
     if (activeWorkspaceId) {
-      void loadTransactions(activeWorkspaceId, currentPage);
+      void loadTransactions(activeWorkspaceId, currentPage, selectedMonths);
     }
-  }, [activeWorkspaceId, currentPage, loadTransactions]);
+  }, [activeWorkspaceId, currentPage, selectedMonths, loadTransactions]);
 
   useEffect(() => {
     if (activeWorkspaceId && activeTab === "unannotated") {
-      void loadUnannotated(activeWorkspaceId, unannotatedPage);
+      void loadUnannotated(activeWorkspaceId, unannotatedPage, selectedMonths);
     }
-  }, [activeWorkspaceId, activeTab, unannotatedPage, loadUnannotated]);
+  }, [activeWorkspaceId, activeTab, unannotatedPage, selectedMonths, loadUnannotated]);
+
+  // When selectedMonths changes, reset pagination and selection
+  useEffect(() => {
+    setCurrentPage(1);
+    setUnannotatedPage(1);
+    setSelectedIds(new Set());
+  }, [selectedMonths]);
 
   // Clear selection when tab changes
   useEffect(() => { setSelectedIds(new Set()); }, [activeTab]);
@@ -517,44 +527,13 @@ export default function AnnotationsPage() {
     }
   }, [currentPage, totalPages]);
 
-  // Delete all transactions for a specific month
-  const handleDeleteMonth = (monthIndex: number) => {
-    const count = monthTxnCounts[monthIndex];
-    if (count === 0) return;
-    setConfirmDeleteMonth(monthIndex);
-  };
-
-  const confirmDeleteMonthAction = async () => {
-    if (confirmDeleteMonth === null || !activeWorkspaceId) return;
-    const monthIndex = confirmDeleteMonth;
-    const monthName = MONTHS[monthIndex];
-    const count = monthTxnCounts[monthIndex];
-    setConfirmDeleteMonth(null);
-    try {
-      const res = await fetch("/api/annotations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "deleteByMonth",
-          workspaceId: activeWorkspaceId,
-          month: monthIndex + 1,
-        }),
-      });
-      if (res.ok) {
-        setToast({ message: `Cleared ${count} transaction${count !== 1 ? "s" : ""} for ${monthName}.`, type: "success" });
-        setTimeout(() => setToast(null), 4000);
-        await Promise.all([
-          loadTransactions(activeWorkspaceId, currentPage),
-          loadStats(activeWorkspaceId),
-        ]);
-      } else {
-        setToast({ message: `Failed to clear ${monthName} transactions. Please try again.`, type: "error" });
-        setTimeout(() => setToast(null), 5000);
-      }
-    } catch {
-      setToast({ message: "Something went wrong. Please try again.", type: "error" });
-      setTimeout(() => setToast(null), 5000);
-    }
+  // Toggle month filter
+  const handleToggleMonthFilter = (monthIndex: number) => {
+    // Month is 1-indexed for the API (1 = Jan, 12 = Dec)
+    const month = monthIndex + 1;
+    setSelectedMonths((prev) =>
+      prev.includes(month) ? prev.filter((m) => m !== month) : [...prev, month]
+    );
   };
 
   return (
@@ -591,30 +570,7 @@ export default function AnnotationsPage() {
         </div>
       )}
 
-      {/* Delete Month Confirmation Modal */}
-      {confirmDeleteMonth !== null && (
-        <div className="modal-overlay">
-          <div className="modal-card" style={{ maxWidth: 420 }}>
-            <div className="modal-header">
-              <span className="material-symbols-outlined" style={{ fontSize: 22, color: "var(--te-error, #ef4444)" }}>delete_sweep</span>
-              <h3 className="modal-title">Clear {MONTHS[confirmDeleteMonth]} Transactions</h3>
-            </div>
-            <p className="modal-desc">
-              You are about to clear all <strong>{monthTxnCounts[confirmDeleteMonth]}</strong> transaction entries for <strong>{MONTHS[confirmDeleteMonth]}</strong>. This cannot be undone.
-            </p>
-            <div className="modal-actions">
-              <button className="modal-btn-cancel" onClick={() => setConfirmDeleteMonth(null)}>Cancel</button>
-              <button
-                className="modal-btn-confirm"
-                style={{ background: "var(--te-error, #ef4444)" }}
-                onClick={confirmDeleteMonthAction}
-              >
-                Clear Transactions
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
       <div className="annotations-page">
         <div className="annotations-main">
           {/* Stat Cards */}
@@ -653,27 +609,38 @@ export default function AnnotationsPage() {
 
           {/* Monthly Summary Cards */}
           <div className="month-cards-row">
-            {MONTHS.map((m, i) => (
-              <div key={m} className="month-card">
-                <span className="month-card-name">{m}</span>
-                <span className="month-card-count">{monthTxnCounts[i]} txns</span>
-                {monthTxnCounts[i] > 0 && (
-                  <button
-                    className="month-card-delete"
-                    onClick={() => handleDeleteMonth(i)}
-                    title={`Clear ${m} transactions`}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
-                  </button>
-                )}
-              </div>
-            ))}
+            {MONTHS.map((m, i) => {
+              const monthNum = i + 1;
+              const isSelected = selectedMonths.includes(monthNum);
+              return (
+                <div 
+                  key={m} 
+                  className="month-card" 
+                  style={isSelected ? { borderColor: "var(--te-accent)", backgroundColor: "#fef3c7", cursor: "pointer" } : { cursor: "pointer" }}
+                  onClick={() => handleToggleMonthFilter(i)}
+                >
+                  <span className="month-card-name" style={isSelected ? { color: "var(--te-accent)" } : {}}>{m}</span>
+                  <span className="month-card-count">{monthTxnCounts[i]} txns</span>
+                  {monthTxnCounts[i] > 0 && (
+                    <button
+                      className="month-card-delete"
+                      style={{ color: isSelected ? "var(--te-accent)" : "#9ca3af" }}
+                      title={`${isSelected ? 'Remove filter for' : 'Filter by'} ${m}`}
+                      onClick={(e) => { e.stopPropagation(); handleToggleMonthFilter(i); }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>filter_list</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Transaction Table */}
           <div className="txn-panel">
             <div className="txn-header-bar">
-              <div className="txn-tabs">
+              <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                <div className="txn-tabs">
                 {([
                   { key: "all" as Tab, label: "All Transactions", count: totalCount },
                   { key: "unannotated" as Tab, label: "Unannotated", count: pendingCount },
@@ -688,6 +655,29 @@ export default function AnnotationsPage() {
                   </button>
                 ))}
               </div>
+              
+              {/* Clear Filter Button */}
+              {selectedMonths.length > 0 && (
+                <button
+                  onClick={() => setSelectedMonths([])}
+                  style={{
+                    padding: "4px 12px",
+                    fontSize: "13px",
+                    background: "rgba(239, 68, 68, 0.1)",
+                    color: "#ef4444",
+                    border: "1px solid rgba(239, 68, 68, 0.2)",
+                    borderRadius: "16px",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px"
+                  }}
+                >
+                  Clear Filter <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                </button>
+              )}
+            </div>
 
               {/* Credit / Debit filter — hidden on unannotated tab (filtered server-side) */}
               {activeTab !== "unannotated" && (

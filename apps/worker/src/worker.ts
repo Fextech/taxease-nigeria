@@ -390,8 +390,14 @@ const generateReportWorker = new Worker(
                 amount: BigInt(Math.max(0, parseInt(d.amount, 10) || 0))
             }));
 
+            // Net taxable income = taxable credits - deductible business expenses
+            // This mirrors the same logic used in /api/reports and /api/dashboard
+            const netTaxableIncome = grossIncome > directBusinessExpenses
+                ? grossIncome - directBusinessExpenses
+                : 0n;
+
             const taxResult = computeTax({
-                grossIncome,
+                grossIncome: netTaxableIncome,
                 reliefs,
                 taxYear: workspace.taxYear,
                 annualRentPaid: job.data.annualRentPaid ? BigInt(job.data.annualRentPaid) : (workspace.annualRentAmount || undefined)
@@ -402,7 +408,7 @@ const generateReportWorker = new Worker(
                 userName: user.name || user.email,
                 professionalCategory: user.professionalCategory || 'N/A',
                 tin: user.taxIdentificationNumber || 'Not Provided',
-                grossIncome: formatKobo(grossIncome),
+                grossIncome: formatKobo(netTaxableIncome),   // net of DBE — matches what the tax engine uses
                 taxLiability: formatKobo(taxResult.taxLiability),
                 totalInflow: formatKobo(totalInflow),
                 directBusinessExpenses: formatKobo(directBusinessExpenses),

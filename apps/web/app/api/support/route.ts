@@ -7,7 +7,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const rawEmailFrom = process.env.EMAIL_FROM || 'onboarding@resend.dev';
 const senderName = process.env.SENDER_NAME || 'Banklens';
 const FROM_EMAIL = rawEmailFrom.includes('<') ? rawEmailFrom : `${senderName} <${rawEmailFrom}>`;
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.SUPPORT_EMAIL || 'admin@example.com';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || process.env.SUPPORT_EMAIL || 'admin@flowiselabs.com';
 
 export async function POST(request: Request) {
     const session = await auth();

@@ -38,7 +38,9 @@ export async function POST(request: Request) {
                 statement: { workspaceId: data.workspaceId },
                 deletedAt: null,
             };
-            if (data.month) {
+            if (data.months && Array.isArray(data.months) && data.months.length > 0) {
+                whereClause.statement = { workspaceId: data.workspaceId, month: { in: data.months } };
+            } else if (data.month) {
                 whereClause.statement = { workspaceId: data.workspaceId, month: data.month };
             }
 
@@ -114,7 +116,7 @@ export async function POST(request: Request) {
             const page = Math.max(1, Number(data.page) || 1);
 
             // Fetch transactions that are NOT COMPLETE (either no annotation or non-COMPLETE status)
-            const whereClause = {
+            const whereClause: any = {
                 statement: { workspaceId: data.workspaceId as string, deletedAt: null as null },
                 deletedAt: null as null,
                 annotation: {
@@ -123,6 +125,10 @@ export async function POST(request: Request) {
                     },
                 },
             };
+            
+            if (data.months && Array.isArray(data.months) && data.months.length > 0) {
+                whereClause.statement.month = { in: data.months };
+            }
 
             const txSelect = {
                 id: true,
