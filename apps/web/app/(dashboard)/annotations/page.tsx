@@ -314,6 +314,7 @@ export default function AnnotationsPage() {
   const handleSave = async (status: AnnotationStatusType = "COMPLETE") => {
     if (!selectedTxn || !activeWorkspaceId) return;
     const previousTransactions = transactions;
+    const previousUnannotatedTxns = unannotatedTxns;
     const previousStats = stats;
     const previousSelectedTxn = selectedTxn;
     const previousPanelState = panelOpen;
@@ -331,6 +332,14 @@ export default function AnnotationsPage() {
     );
 
     setTransactions(optimisticTransactions);
+
+    // Also update the unannotated list — remove the just-annotated transaction
+    // from it immediately so the row disappears without waiting for a refresh.
+    if (status === "COMPLETE" || status === "IN_PROGRESS") {
+      setUnannotatedTxns((prev) => prev.filter((t) => t.id !== selectedTxn.id));
+      setUnannotatedTotal((prev) => Math.max(0, prev - 1));
+    }
+
     setStats((currentStats) => applyOptimisticStats(currentStats, selectedTxn, optimisticAnnotation));
     setPendingSaveIds((current) => ({ ...current, [selectedTxn.id]: true }));
 
@@ -389,6 +398,7 @@ export default function AnnotationsPage() {
       }
     } catch {
       setTransactions(previousTransactions);
+      setUnannotatedTxns(previousUnannotatedTxns);
       setStats(previousStats);
       setSelectedTxn(previousSelectedTxn);
       setPanelOpen(previousPanelState);

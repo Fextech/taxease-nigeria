@@ -47,6 +47,30 @@ async function hashFile(file: File): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+// ─── Retry Status Text with timed phases ─────────────────────────────────────
+function RetryStatusText() {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  let message = "Retrying, please wait...";
+  if (elapsed >= 240) message = "😬 I must get all the transactions.";
+  else if (elapsed >= 120) message = "Getting all transactions.";
+
+  return (
+    <span
+      className="file-status-text"
+      style={{ marginTop: "0px", fontWeight: 500, color: "var(--te-warning, #f59e0b)" }}
+    >
+      {message}
+    </span>
+  );
+}
+
+
 export default function StatementsPage() {
   useSession();
   const { activeWorkspaceId, activeWorkspace } = useWorkspace();
@@ -187,9 +211,9 @@ export default function StatementsPage() {
         return;
       }
 
-      // Validate file size (20 MB max)
-      if (file.size > 20 * 1024 * 1024) {
-        setError("File is too large. Maximum size is 20 MB.");
+      // Validate file size (5 MB max)
+      if (file.size > 5 * 1024 * 1024) {
+        setError("File is too large. Maximum size is 5 MB.");
         return;
       }
 
@@ -597,7 +621,7 @@ export default function StatementsPage() {
                             loop={true} 
                             style={{ height: 120, width: 120 }} 
                           />
-                          <span className="file-status-text" style={{ marginTop: "0px", fontWeight: 500, color: "var(--te-warning, #f59e0b)" }}>Retrying, please wait...</span>
+                          <RetryStatusText />
                         </>
                       ) : (
                         <>

@@ -40,7 +40,11 @@ function getResendClient(): Resend {
     return new Resend(apiKey);
 }
 
-const FROM_EMAIL = process.env.EMAIL_FROM || "Banklens Nigeria <onboarding@resend.dev>";
+const rawEmailFrom = process.env.EMAIL_FROM || "onboarding@resend.dev";
+const senderName = process.env.SENDER_NAME || "Banklens Nigeria";
+const FROM_EMAIL = rawEmailFrom.includes("<")
+    ? rawEmailFrom
+    : `${senderName} <${rawEmailFrom}>`;
 
 let PARSER_URL = process.env.PARSER_URL || 'http://localhost:8000';
 if (!PARSER_URL.startsWith('http://') && !PARSER_URL.startsWith('https://')) {

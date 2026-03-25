@@ -291,6 +291,14 @@ export const billingRouter = router({
                 });
             }
 
+            // Fix 1: Ownership check — only the user who initiated can verify
+            if (txn.userId !== ctx.user.id) {
+                throw new TRPCError({
+                    code: 'NOT_FOUND',
+                    message: 'Transaction not found.',
+                });
+            }
+
             if (txn.status === 'success') {
                 return { status: 'already_verified' };
             }
@@ -306,8 +314,8 @@ export const billingRouter = router({
             const data = await res.json();
 
             if (!data.status || data.data.status !== 'success') {
-                await ctx.prisma.paystackTransaction.update({
-                    where: { reference: input.reference },
+                await ctx.prisma.paystackTransaction.updateMany({
+                    where: { reference: input.reference, status: 'pending' },
                     data: { status: 'failed', paystackData: data.data },
                 });
                 throw new TRPCError({
@@ -316,13 +324,26 @@ export const billingRouter = router({
                 });
             }
 
-            // Payment verified — apply the benefit
+            // Fix 2: Amount cross-check — ensure Paystack amount matches what we stored
+            if (BigInt(data.data.amount) !== txn.amount) {
+                throw new TRPCError({
+                    code: 'BAD_REQUEST',
+                    message: 'Payment amount mismatch. Contact support.',
+                });
+            }
+
+            // Fix 3: Atomic compare-and-swap — only one concurrent request can win
             const meta = txn.metadata as Record<string, unknown>;
 
-            await ctx.prisma.paystackTransaction.update({
-                where: { reference: input.reference },
+            const updateResult = await ctx.prisma.paystackTransaction.updateMany({
+                where: { reference: input.reference, status: 'pending' },
                 data: { status: 'success', paystackData: data.data },
             });
+
+            if (updateResult.count === 0) {
+                // Another concurrent request already processed this — safe to return early
+                return { status: 'already_verified' };
+            }
 
             if (txn.type === 'workspace_unlock') {
                 const updates: Record<string, unknown> = {
