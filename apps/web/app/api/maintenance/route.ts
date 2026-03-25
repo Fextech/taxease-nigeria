@@ -5,6 +5,8 @@ import { prisma } from '@/lib/prisma';
  * GET /api/maintenance
  * Public endpoint — returns { enabled, html } for the maintenance page.
  */
+export const dynamic = 'force-dynamic';
+
 export async function GET() {
     try {
         const [enabledRow, htmlRow] = await Promise.all([

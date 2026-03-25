@@ -37,10 +37,12 @@ export default function SettingsPage() {
   // Maintenance Data
   const { data: maintenanceData, refetch: refetchMaintenance } = trpc.admin.settings.getMaintenanceConfig.useQuery();
   const updateMaintenance = trpc.admin.settings.updateMaintenanceConfig.useMutation({
-      onSuccess: () => { refetchMaintenance(); toast.success('Maintenance settings saved!'); }
+      onSuccess: () => { refetchMaintenance(); toast.success('Maintenance settings saved!'); },
+      onError: (err) => toast.error(err.message)
   });
   const toggleMaintenance = trpc.admin.settings.toggleMaintenanceMode.useMutation({
-      onSuccess: () => refetchMaintenance()
+      onSuccess: () => { refetchMaintenance(); toast.success('Maintenance mode toggled!'); },
+      onError: (err) => toast.error(err.message)
   });
   const [maintenanceHtml, setMaintenanceHtml] = useState('');
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
@@ -55,7 +57,8 @@ export default function SettingsPage() {
   // How To Guide Data
   const { data: howToData, refetch: refetchHowTo } = trpc.admin.settings.getHowToGuide.useQuery();
   const updateHowTo = trpc.admin.settings.updateHowToGuide.useMutation({
-      onSuccess: () => { refetchHowTo(); toast.success('How-To guide saved!'); }
+      onSuccess: () => { refetchHowTo(); toast.success('How-To guide saved!'); },
+      onError: (err) => toast.error(err.message)
   });
   const [howToPages, setHowToPages] = useState<string[]>([]);
   const [activeHowToPageIdx, setActiveHowToPageIdx] = useState<number>(0);
