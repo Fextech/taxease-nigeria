@@ -13,6 +13,7 @@ function SignInContent() {
   const router = useRouter();
   const callbackUrl = searchParams.get("callbackUrl") || "/overview";
   const error = searchParams.get("error");
+  const reason = searchParams.get("reason");
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -109,6 +110,34 @@ function SignInContent() {
             Sign in to manage your tax returns
           </p>
         </div>
+
+        {/* Session timeout notice */}
+        {reason === "timeout" && !displayError && (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: 10,
+              background: "rgba(251,191,36,0.08)",
+              border: "1px solid rgba(251,191,36,0.3)",
+              borderRadius: 10,
+              padding: "12px 14px",
+              marginBottom: 16,
+              fontSize: 13,
+              color: "#fde68a",
+            }}
+          >
+            <span
+              className="material-symbols-outlined"
+              style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}
+            >
+              timer
+            </span>
+            <span>
+              Your session expired due to inactivity. Please sign in again.
+            </span>
+          </div>
+        )}
 
         {/* Error Message */}
         {displayError && (

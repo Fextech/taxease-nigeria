@@ -107,6 +107,7 @@ export default function AnnotationsPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [txnTypeFilter, setTxnTypeFilter] = useState<TxnTypeFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedTxn, setSelectedTxn] = useState<TransactionRow | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -429,6 +430,14 @@ export default function AnnotationsPage() {
     return true;
   });
 
+  // Live search filter — applied after all other filters
+  const searchLower = searchQuery.toLowerCase();
+  const filteredRows = searchLower
+    ? (activeTab === "unannotated" ? unannotatedTxns : visibleRows).filter((t) =>
+        t.description.toLowerCase().includes(searchLower)
+      )
+    : activeTab === "unannotated" ? unannotatedTxns : visibleRows;
+
   // The type of already-selected transactions (debit or credit)
   const selectionType: "debit" | "credit" | null = (() => {
     if (selectedIds.size === 0) return null;
@@ -507,7 +516,7 @@ export default function AnnotationsPage() {
   };
 
   // Filtered list for all/completed tabs (unannotated uses its own state)
-  const filtered = activeTab === "unannotated" ? unannotatedTxns : visibleRows;
+  const filtered = filteredRows;
 
   const totalCount = stats?.totalTransactions ?? transactions.length;
   const annotatedCount = stats?.annotatedTransactions ?? 0;
@@ -678,6 +687,67 @@ export default function AnnotationsPage() {
                 </button>
               )}
             </div>
+
+              {/* Search bar */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, maxWidth: 320 }}>
+                <div style={{ position: "relative", width: "100%" }}>
+                  <span
+                    className="material-symbols-outlined"
+                    style={{
+                      position: "absolute",
+                      left: 10,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      fontSize: 16,
+                      color: "var(--te-text-muted, #94a3b8)",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    search
+                  </span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search description…"
+                    style={{
+                      width: "100%",
+                      paddingLeft: 32,
+                      paddingRight: searchQuery ? 32 : 12,
+                      paddingTop: 6,
+                      paddingBottom: 6,
+                      fontSize: 13,
+                      border: "1px solid rgba(15,23,42,0.12)",
+                      borderRadius: 8,
+                      background: "var(--te-surface, #fff)",
+                      color: "var(--te-text, #0f172a)",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery("")}
+                      style={{
+                        position: "absolute",
+                        right: 8,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        color: "var(--te-text-muted, #94a3b8)",
+                      }}
+                      title="Clear search"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                    </button>
+                  )}
+                </div>
+              </div>
 
               {/* Credit / Debit filter — hidden on unannotated tab (filtered server-side) */}
               {activeTab !== "unannotated" && (
