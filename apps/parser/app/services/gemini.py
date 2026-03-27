@@ -48,7 +48,7 @@ RULES:
 
 2. Convert all Naira amounts to kobo by multiplying by 100. For example: ₦1,500.50 → 150050
 3. If a row is ambiguous, still include it but set confidence lower.
-4. Identify the bank name from the statement header/footer.
+4. Identify the bank name from the statement header/footer, especially from the contact information.
 5. Do NOT fabricate transactions. Only extract what is in the text.
 
 OUTPUT FORMAT:

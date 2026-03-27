@@ -108,6 +108,43 @@ async def parse_statement(
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
 
+    # Step 1.5: Validate the document looks like a bank statement
+    # This runs AFTER text extraction but BEFORE the Gemini API call to avoid
+    # wasting Gemini quota on non-financial documents.
+    BANK_STATEMENT_KEYWORDS = [
+        # Generic financial terms
+        "balance", "debit", "credit", "transaction", "account",
+        "statement", "deposit", "withdrawal", "opening", "closing",
+        "bank", "date", "amount", "narration", "description",
+        "value date", "reference", "ledger", "teller", "transfer",
+        "inflow", "outflow", "charge", "fee",
+        # Nigerian bank names
+        "gtbank", "guaranty trust", "access bank", "zenith bank",
+        "first bank", "uba", "fcmb", "stanbic ibtc", "sterling bank",
+        "union bank", "wema bank", "fidelity bank", "polaris bank",
+        "opay", "kuda", "moniepoint", "palmpay", "carbon", "vfd",
+        "providus", "jaiz", "taj bank", "standard chartered",
+    ]
+
+    def is_likely_bank_statement(text: str) -> bool:
+        text_lower = text.lower()
+        matches = sum(1 for kw in BANK_STATEMENT_KEYWORDS if kw in text_lower)
+        return matches >= 3
+
+    if not is_likely_bank_statement(raw_text):
+        logger.warning(
+            f"File '{file.filename}' failed bank statement keyword check — "
+            f"rejecting with 422."
+        )
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "The uploaded file does not appear to be a bank statement. "
+                "Please upload a valid PDF bank statement downloaded directly "
+                "from your bank's app or internet banking portal."
+            ),
+        )
+
     # Step 2: Send to Gemini for structured extraction
     gemini_result = await extract_transactions(raw_text)
 

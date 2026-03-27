@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { sanitizeHtml } from "@/lib/sanitize-html";
+import TrustedHtmlFrame from "@/components/TrustedHtmlFrame";
 
 export default function HowToGuideModal() {
   const [isOpen, setIsOpen] = useState(false);
@@ -63,7 +63,7 @@ export default function HowToGuideModal() {
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div 
         className="bg-[#131F20] w-full max-w-2xl rounded-2xl shadow-2xl border border-white/10 overflow-hidden flex flex-col relative"
-        style={{ minHeight: "60vh", maxHeight: "85vh" }}
+        style={{ minHeight: "46vh", maxHeight: "72vh" }}
       >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-white/5">
@@ -80,8 +80,15 @@ export default function HowToGuideModal() {
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-8 text-slate-300">
-          <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(pages[currentIndex]) }} />
+        <div className="flex-1 overflow-y-auto p-5 text-slate-300">
+          <TrustedHtmlFrame
+            html={pages[currentIndex]}
+            title={`How-to guide page ${currentIndex + 1}`}
+            className="w-full rounded-xl"
+            constrainContentWidth
+            initialHeight={260}
+            minHeight={180}
+          />
         </div>
 
         {/* Footer Navigation */}

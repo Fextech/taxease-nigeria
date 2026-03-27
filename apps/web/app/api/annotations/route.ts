@@ -38,7 +38,9 @@ export async function POST(request: Request) {
                 statement: { workspaceId: data.workspaceId },
                 deletedAt: null,
             };
-            if (data.month) {
+            if (data.months && Array.isArray(data.months) && data.months.length > 0) {
+                whereClause.statement = { workspaceId: data.workspaceId, month: { in: data.months } };
+            } else if (data.month) {
                 whereClause.statement = { workspaceId: data.workspaceId, month: data.month };
             }
 
@@ -97,6 +99,96 @@ export async function POST(request: Request) {
                 pageSize,
             });
         }
+
+        // ─── LIST UNANNOTATED ────────────────────────────
+        // Returns all unannotated transactions (no pagination) unless total > 50,
+        // in which case it paginates at 50 per page.
+        if (action === 'listUnannotated') {
+            const workspace = await prisma.workspace.findUnique({
+                where: { id: data.workspaceId },
+            });
+
+            if (!workspace || workspace.userId !== session.user.id) {
+                return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
+            }
+
+            const UNANNOTATED_PAGE_SIZE = 50;
+            const page = Math.max(1, Number(data.page) || 1);
+
+            // Fetch transactions that are NOT COMPLETE (either no annotation or non-COMPLETE status)
+            const whereClause: any = {
+                statement: { workspaceId: data.workspaceId as string, deletedAt: null as null },
+                deletedAt: null as null,
+                annotation: {
+                    isNot: {
+                        status: 'COMPLETE' as const,
+                    },
+                },
+            };
+            
+            if (data.months && Array.isArray(data.months) && data.months.length > 0) {
+                whereClause.statement.month = { in: data.months };
+            }
+
+            const txSelect = {
+                id: true,
+                transactionDate: true,
+                description: true,
+                creditAmount: true,
+                debitAmount: true,
+                balance: true,
+                channel: true,
+                confidence: true,
+                statement: { select: { month: true, bankName: true } },
+                annotation: {
+                    select: {
+                        id: true,
+                        taxableStatus: true,
+                        taxableAmount: true,
+                        taxCategory: true,
+                        reason: true,
+                        reliefType: true,
+                        status: true,
+                        notes: true,
+                        aiSuggested: true,
+                        aiConfidence: true,
+                    },
+                },
+            };
+
+            const totalCount = await prisma.transaction.count({ where: whereClause });
+            const needsPagination = totalCount > UNANNOTATED_PAGE_SIZE;
+
+            const transactions = await prisma.transaction.findMany({
+                where: whereClause,
+                orderBy: [{ transactionDate: 'desc' }, { id: 'desc' }],
+                skip: needsPagination ? (page - 1) * UNANNOTATED_PAGE_SIZE : 0,
+                take: needsPagination ? UNANNOTATED_PAGE_SIZE : undefined,
+                select: txSelect,
+            });
+
+            const serialized = transactions.map((tx) => ({
+                ...tx,
+                creditAmount: tx.creditAmount.toString(),
+                debitAmount: tx.debitAmount.toString(),
+                balance: tx.balance?.toString() ?? null,
+                annotation: tx.annotation
+                    ? {
+                          ...tx.annotation,
+                          taxableAmount: tx.annotation.taxableAmount?.toString() ?? null,
+                      }
+                    : null,
+            }));
+
+            return NextResponse.json({
+                items: serialized,
+                totalCount,
+                page,
+                pageSize: needsPagination ? UNANNOTATED_PAGE_SIZE : totalCount,
+                needsPagination,
+            });
+        }
+
 
         // ─── STATS ───────────────────────────────────────
         if (action === 'stats') {

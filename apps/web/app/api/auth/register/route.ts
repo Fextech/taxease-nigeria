@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
+import { sendWelcomeEmail } from "@/lib/mail";
 
 const registerSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -50,6 +51,11 @@ export async function POST(req: NextRequest) {
         email,
         password: hashedPassword,
       },
+    });
+
+    // Send welcome email (non-blocking)
+    sendWelcomeEmail(email, name).catch((err) => {
+      console.error("Failed to send welcome email:", err);
     });
 
     return NextResponse.json(

@@ -18,10 +18,39 @@ type UserItem = {
   plan: string;
   isSuspended: boolean;
   createdAt: Date;
+  openTicketCount: number;
   _count: { workspaces: number };
 };
 
 const columnHelper = createColumnHelper<UserItem>();
+
+function OpenTicketBadge({ count }: { count: number }) {
+  if (count < 1) return null;
+
+  return (
+    <span
+      title={`${count} open support ticket${count === 1 ? "" : "s"}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 4,
+        padding: "2px 8px",
+        borderRadius: 999,
+        background: "rgba(239, 68, 68, 0.14)",
+        color: "#fca5a5",
+        border: "1px solid rgba(239, 68, 68, 0.28)",
+        fontSize: 11,
+        fontWeight: 700,
+        lineHeight: 1,
+      }}
+    >
+      <span className="material-symbols-outlined" style={{ fontSize: 14 }}>
+        mail
+      </span>
+      {count}
+    </span>
+  );
+}
 
 export default function UsersPage() {
   const [search, setSearch] = useState("");
@@ -89,12 +118,24 @@ export default function UsersPage() {
       cell: (info) => {
         const name = info.getValue() || "Unknown User";
         const initials = name.substring(0, 2).toUpperCase();
+        const userId = info.row.original.id;
         return (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div className="admin-sidebar-avatar" style={{ width: 32, height: 32, fontSize: 11 }}>
               {initials}
             </div>
-            <span style={{ fontWeight: 600 }}>{name}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span style={{ fontWeight: 600 }}>{name}</span>
+              {info.row.original.openTicketCount > 0 ? (
+                <Link
+                  href={`/users/${userId}?tab=Support%20Tickets`}
+                  style={{ display: "inline-flex" }}
+                  title="Open support tickets"
+                >
+                  <OpenTicketBadge count={info.row.original.openTicketCount || 0} />
+                </Link>
+              ) : null}
+            </div>
           </div>
         );
       },

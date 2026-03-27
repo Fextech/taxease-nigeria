@@ -18,16 +18,19 @@ const ALLOWED_TAGS = [
     'ul', 'ol', 'li',
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'blockquote', 'pre', 'code',
+    'table', 'thead', 'tbody', 'tfoot', 'tr', 'th', 'td',
     'a', 'img',
     'figure', 'figcaption',
     'video', 'source',
     'iframe',
+    'style',
 ];
 
 /** Attributes permitted on those elements */
 const ALLOWED_ATTR = [
     'href', 'target', 'rel', 'style', 'class', 'id', 'title',
     'src', 'alt', 'width', 'height',
+    'colspan', 'rowspan', 'cellpadding', 'cellspacing',
     'controls', 'poster', 'autoplay', 'muted', 'loop', 'playsinline', 'preload',
     'allow', 'allowfullscreen', 'frameborder', 'loading', 'referrerpolicy', 'type',
 ];
@@ -44,6 +47,15 @@ const SAFE_IFRAME_HOSTS = new Set([
 ]);
 
 let hooksRegistered = false;
+
+function sanitizeCss(css: string): string {
+    return css
+        .replace(/@import[\s\S]*?;/gi, '')
+        .replace(/expression\s*\([^)]*\)/gi, '')
+        .replace(/javascript:/gi, '')
+        .replace(/behavior\s*:/gi, '')
+        .trim();
+}
 
 function isSafeHttpUrl(value: string): boolean {
     return value.startsWith('http://') || value.startsWith('https://');
@@ -135,9 +147,30 @@ function ensureHooksRegistered() {
                 node.setAttribute('referrerpolicy', 'strict-origin-when-cross-origin');
             }
         }
+
     });
 
     hooksRegistered = true;
+}
+
+function normalizeHtmlDocument(raw: string): { body: string; styles: string[] } {
+    const trimmed = raw.trim();
+    if (!trimmed) return { body: '', styles: [] };
+
+    const styles = Array.from(
+        trimmed.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)
+    )
+        .map((match) => sanitizeCss(match[1] || ''))
+        .filter(Boolean);
+
+    const bodyMatch = trimmed.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
+    const bodyContent = bodyMatch ? bodyMatch[1] : trimmed;
+    const bodyWithoutStyleTags = bodyContent.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
+
+    return {
+        body: bodyWithoutStyleTags,
+        styles,
+    };
 }
 
 /**
@@ -148,8 +181,9 @@ function ensureHooksRegistered() {
 export function sanitizeHtml(raw: string): string {
     if (!raw) return '';
     ensureHooksRegistered();
+    const normalized = normalizeHtmlDocument(raw);
 
-    return DOMPurify.sanitize(raw, {
+    const sanitizedBody = DOMPurify.sanitize(normalized.body, {
         ALLOWED_TAGS,
         ALLOWED_ATTR,
         FORBID_TAGS: ['script', 'object', 'embed', 'form', 'input'],
@@ -157,4 +191,10 @@ export function sanitizeHtml(raw: string): string {
         ALLOW_DATA_ATTR: false,
         FORCE_BODY: false,
     });
+
+    const styleBlocks = normalized.styles
+        .map((css) => `<style>${css}</style>`)
+        .join('');
+
+    return `${styleBlocks}${sanitizedBody}`;
 }

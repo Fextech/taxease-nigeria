@@ -33,6 +33,7 @@ model User {
   delegationsReceived     Delegation[]   @relation("DelegationDelegate")
   delegationsGiven        Delegation[]   @relation("DelegationOwner")
   notifications           Notification[]
+  directMessages          DirectMessage[]
   sessions                Session[]
   subscription            Subscription?
   workspaces              Workspace[]
@@ -102,6 +103,7 @@ model Workspace {
   deletedAt            DateTime?
   isUnlocked           Boolean          @default(false)
   statementCredits     Int              @default(0)
+  reportGenerationCount Int             @default(0)
   unlockMethod         String?
   unlockedMonths       Json?
   creditPurchases      CreditPurchase[]
@@ -297,6 +299,7 @@ model AdminUser {
   auditLogs       AdminAuditLog[]
   sessions        AdminSession[]
   broadcasts      Broadcast[]
+  directMessages  DirectMessage[]
   ticketMessages  SupportMessage[]
   ticketsAssigned SupportTicket[]  @relation("TicketAssignee")
 
@@ -372,6 +375,10 @@ model BroadcastRecipient {
   broadcastId String
   userId      String
   channel     BroadcastChannel
+  resendEmailId String?        @unique
+  deliveryStatus EmailDeliveryStatus @default(PENDING)
+  lastEventType String?
+  lastEventAt   DateTime?
   deliveredAt DateTime?
   openedAt    DateTime?
   failedAt    DateTime?
@@ -381,6 +388,31 @@ model BroadcastRecipient {
 
   @@index([broadcastId])
   @@index([userId])
+  @@index([resendEmailId])
+}
+
+model DirectMessage {
+  id             String              @id @default(cuid())
+  userId         String
+  adminId        String
+  subject        String
+  body           String
+  resendEmailId  String?             @unique
+  deliveryStatus EmailDeliveryStatus @default(PENDING)
+  lastEventType  String?
+  lastEventAt    DateTime?
+  deliveredAt    DateTime?
+  openedAt       DateTime?
+  failedAt       DateTime?
+  failReason     String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  admin          AdminUser           @relation(fields: [adminId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([adminId])
+  @@index([resendEmailId])
 }
 
 model EmailTemplate {
@@ -531,6 +563,20 @@ enum BroadcastStatus {
   SENT
   PARTIALLY_FAILED
   CANCELLED
+}
+
+enum EmailDeliveryStatus {
+  PENDING
+  SENT
+  DELIVERED
+  DELIVERY_DELAYED
+  OPENED
+  CLICKED
+  BOUNCED
+  COMPLAINED
+  FAILED
+  SUPPRESSED
+  NOT_APPLICABLE
 }
 
 enum TicketStatus {

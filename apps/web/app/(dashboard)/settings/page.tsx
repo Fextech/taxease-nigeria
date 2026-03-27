@@ -28,6 +28,7 @@ export default function SettingsPage() {
 function SettingsContent() {
   const { data: session, update } = useSession();
   const mfaEnabled = (session as unknown as { mfaEnabled: boolean })?.mfaEnabled ?? false;
+  const authProvider = (session as unknown as { authProvider?: string })?.authProvider ?? null;
   const { activeWorkspace, refresh: refreshWorkspace } = useWorkspace();
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -47,6 +48,8 @@ function SettingsContent() {
   const [taxIdentificationNumber, setTaxIdentificationNumber] = useState("");
   const [professionalCategory, setProfessionalCategory] = useState("");
   const [stateOfResidence, setStateOfResidence] = useState("");
+  const [hasPassword, setHasPassword] = useState(false);
+  const [hasGoogleAccount, setHasGoogleAccount] = useState(false);
 
   // MFA state
   const [step, setStep] = useState<MfaStep>("idle");
@@ -205,6 +208,8 @@ function SettingsContent() {
           setTaxIdentificationNumber(data.taxIdentificationNumber || "");
           setProfessionalCategory(data.professionalCategory || "");
           setStateOfResidence(data.stateOfResidence || "");
+          setHasPassword(Boolean(data.hasPassword));
+          setHasGoogleAccount(Boolean(data.hasGoogleAccount));
         }
       } catch { /* silent */ }
       setProfileLoading(false);
@@ -302,15 +307,16 @@ function SettingsContent() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "change_password",
-          currentPassword: cpCurrent,
+          action: hasPassword ? "change_password" : "set_password",
+          currentPassword: hasPassword ? cpCurrent : undefined,
           newPassword: cpNew,
         }),
       });
       const data = await res.json();
       if (!res.ok) { setCpError(data.error || "Failed to change password"); return; }
 
-      setCpSuccess("Password changed successfully!");
+      setCpSuccess(hasPassword ? "Password changed successfully!" : "Password setup completed successfully!");
+      setHasPassword(true);
       setCpCurrent(""); setCpNew(""); setCpConfirm("");
       setTimeout(() => setCpSuccess(""), 4000);
     } catch { setCpError("Something went wrong."); }
@@ -534,12 +540,71 @@ function SettingsContent() {
               </form>
             )}
 
-            {/* Change Password Section */}
             <div className="settings-section-divider" style={{ borderTop: "1px solid var(--te-border)", margin: "32px 0", paddingTop: "32px" }}>
               <div className="settings-card-header" style={{ borderBottom: "none", paddingBottom: "16px", paddingLeft: "0", paddingRight: "0", paddingTop: "0" }}>
                 <div>
-                  <h3 className="sec-mfa-label" style={{ marginBottom: "4px" }}>Change Password</h3>
-                  <p className="sec-mfa-desc">Update your account login password</p>
+                  <h3 className="sec-mfa-label" style={{ marginBottom: "4px" }}>Sign-In Methods</h3>
+                  <p className="sec-mfa-desc">See which login methods are connected to your account</p>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gap: 16 }}>
+                <div style={{ border: "1px solid var(--te-border)", borderRadius: 16, padding: 18, display: "flex", justifyContent: "space-between", gap: 16, alignItems: "center" }}>
+                  <div>
+                    <h4 style={{ margin: "0 0 6px", color: "var(--te-text)", fontSize: 15 }}>Google</h4>
+                    <p style={{ margin: 0, color: "var(--te-text-muted)", fontSize: 13 }}>
+                      {hasGoogleAccount
+                        ? authProvider === "google"
+                          ? "Connected and currently being used for this session."
+                          : "Connected to your account."
+                        : "Not connected. You can only connect Google from the sign-in page."}
+                    </p>
+                  </div>
+                  <span className={`sec-badge ${hasGoogleAccount ? "sec-badge-on" : "sec-badge-off"}`}>
+                    {hasGoogleAccount ? "Connected" : "Not connected"}
+                  </span>
+                </div>
+
+                <div id="password-method-form" style={{ border: "1px solid var(--te-border)", borderRadius: 16, padding: 18, display: "flex", justifyContent: "space-between", gap: 16, alignItems: "center" }}>
+                  <div>
+                    <h4 style={{ margin: "0 0 6px", color: "var(--te-text)", fontSize: 15 }}>Email and Password</h4>
+                    <p style={{ margin: 0, color: "var(--te-text-muted)", fontSize: 13 }}>
+                      {hasPassword
+                        ? authProvider === "credentials"
+                          ? "Connected and currently being used for this session."
+                          : "Connected to your account."
+                        : hasGoogleAccount
+                          ? "Not connected yet. Set up a password to add this sign-in method."
+                          : "Not connected."}
+                    </p>
+                  </div>
+                  {hasPassword ? (
+                    <span className="sec-badge sec-badge-on">Connected</span>
+                  ) : hasGoogleAccount ? (
+                    <button
+                      type="button"
+                      className="settings-btn-primary"
+                      onClick={() => document.getElementById("password-method-fields")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                    >
+                      Set Up a Password
+                    </button>
+                  ) : (
+                    <span className="sec-badge sec-badge-off">Not connected</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Change Password Section */}
+            <div id="password-method-fields" className="settings-section-divider" style={{ borderTop: "1px solid var(--te-border)", margin: "32px 0", paddingTop: "32px" }}>
+              <div className="settings-card-header" style={{ borderBottom: "none", paddingBottom: "16px", paddingLeft: "0", paddingRight: "0", paddingTop: "0" }}>
+                <div>
+                  <h3 className="sec-mfa-label" style={{ marginBottom: "4px" }}>{hasPassword ? "Change Password" : "Set Up a Password"}</h3>
+                  <p className="sec-mfa-desc">
+                    {hasPassword
+                      ? "Update your account login password"
+                      : "Add email and password as an additional sign-in method for this account"}
+                  </p>
                 </div>
               </div>
 
@@ -557,29 +622,32 @@ function SettingsContent() {
               )}
 
               <form onSubmit={handleChangePassword} className="settings-form" style={{ maxWidth: "500px" }}>
-                <div className="settings-field">
-                  <label className="settings-label">Current Password</label>
-                  <div className="relative flex items-center">
-                    <input
-                      type={showCpCurrent ? "text" : "password"}
-                      value={cpCurrent}
-                      onChange={(e) => setCpCurrent(e.target.value)}
-                      placeholder="••••••••"
-                      className="settings-input w-full"
-                      required
-                      style={{ paddingRight: "40px" }}
-                    />
-                    <button
-                      type="button"
-                      className="absolute right-3 text-slate-400 hover:text-white transition-colors flex items-center justify-center h-full"
-                      onClick={() => setShowCpCurrent(!showCpCurrent)}
-                    >
-                      <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
-                        {showCpCurrent ? "visibility_off" : "visibility"}
-                      </span>
-                    </button>
+                {hasPassword && (
+                  <div className="settings-field">
+                    <label className="settings-label">Current Password</label>
+                    <div className="relative flex items-center">
+                      <input
+                        type={showCpCurrent ? "text" : "password"}
+                        value={cpCurrent}
+                        onChange={(e) => setCpCurrent(e.target.value)}
+                        placeholder="••••••••"
+                        className="settings-input w-full"
+                        required
+                        autoComplete="current-password"
+                        style={{ paddingRight: "40px" }}
+                      />
+                      <button
+                        type="button"
+                        className="absolute right-3 text-slate-400 hover:text-white transition-colors flex items-center justify-center h-full"
+                        onClick={() => setShowCpCurrent(!showCpCurrent)}
+                      >
+                        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
+                          {showCpCurrent ? "visibility_off" : "visibility"}
+                        </span>
+                      </button>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div className="settings-field">
                   <label className="settings-label">New Password</label>
@@ -592,6 +660,7 @@ function SettingsContent() {
                       className="settings-input w-full"
                       required
                       minLength={8}
+                      autoComplete="new-password"
                       style={{ paddingRight: "40px" }}
                     />
                     <button
@@ -618,6 +687,7 @@ function SettingsContent() {
                       className="settings-input w-full"
                       required
                       minLength={8}
+                      autoComplete="new-password"
                       style={{ paddingRight: "40px" }}
                     />
                   </div>
@@ -625,7 +695,7 @@ function SettingsContent() {
 
                 <div className="settings-actions" style={{ justifyContent: "flex-start", marginTop: "8px" }}>
                   <button type="submit" className="settings-btn-primary" disabled={cpLoading}>
-                    {cpLoading ? "Updating..." : "Update Password"}
+                    {cpLoading ? (hasPassword ? "Updating..." : "Setting up...") : (hasPassword ? "Update Password" : "Set Up Password")}
                   </button>
                 </div>
               </form>

@@ -7,6 +7,7 @@ import { useWorkspace } from "@/components/dashboard/WorkspaceContext";
 import { StatementUploader } from "@/components/dashboard/StatementUploader";
 import Lottie from "lottie-react";
 import searchDocAnimation from "../../../public/Search-Doc-Animation.json";
+import retryAnimation from "../../../public/retry-anima.json";
 
 const months = [
   { short: "JAN", full: "January" },
@@ -45,6 +46,30 @@ async function hashFile(file: File): Promise<string> {
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
+
+// ─── Retry Status Text with timed phases ─────────────────────────────────────
+function RetryStatusText() {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  let message = "Retrying, please wait...";
+  if (elapsed >= 240) message = "😬 I must get all the transactions.";
+  else if (elapsed >= 120) message = "Getting all transactions.";
+
+  return (
+    <span
+      className="file-status-text"
+      style={{ marginTop: "0px", fontWeight: 500, color: "var(--te-warning, #f59e0b)" }}
+    >
+      {message}
+    </span>
+  );
+}
+
 
 export default function StatementsPage() {
   useSession();
@@ -186,9 +211,9 @@ export default function StatementsPage() {
         return;
       }
 
-      // Validate file size (20 MB max)
-      if (file.size > 20 * 1024 * 1024) {
-        setError("File is too large. Maximum size is 20 MB.");
+      // Validate file size (5 MB max)
+      if (file.size > 5 * 1024 * 1024) {
+        setError("File is too large. Maximum size is 5 MB.");
         return;
       }
 
@@ -589,12 +614,25 @@ export default function StatementsPage() {
 
                   {(stmt.parseStatus === "PROCESSING" || stmt.parseStatus === "UPLOADED") && (
                     <div className="file-progress" style={{ marginTop: "16px", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                      <Lottie 
-                        animationData={searchDocAnimation} 
-                        loop={true} 
-                        style={{ height: 120, width: 120 }} 
-                      />
-                      <span className="file-status-text" style={{ marginTop: "0px", fontWeight: 500 }}>Analyzing statement...</span>
+                      {stmt.errorMessage?.includes("RETRYING") ? (
+                        <>
+                          <Lottie 
+                            animationData={retryAnimation} 
+                            loop={true} 
+                            style={{ height: 120, width: 120 }} 
+                          />
+                          <RetryStatusText />
+                        </>
+                      ) : (
+                        <>
+                          <Lottie 
+                            animationData={searchDocAnimation} 
+                            loop={true} 
+                            style={{ height: 120, width: 120 }} 
+                          />
+                          <span className="file-status-text" style={{ marginTop: "0px", fontWeight: 500 }}>Analyzing statement...</span>
+                        </>
+                      )}
                     </div>
                   )}
                   <button

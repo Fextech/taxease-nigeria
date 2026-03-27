@@ -23,7 +23,7 @@ export default function Home() {
               Simplify Your <span className="text-accent relative inline-block">Tax Returns</span> with AI-Powered Intelligence
             </h1>
             <p className="text-[clamp(16px,2vw,20px)] leading-relaxed text-slate-400 max-w-[600px] mb-10">
-              Upload your bank statements in PDF or Excel. Our advanced AI categorizes your transactions, and help you annotate your exact personal income tax liability, and generates verifiable reports for the FCT-IRS or LIRS in minutes.
+              Upload your bank statements in PDF. Our advanced AI categorizes your transactions, and help you annotate your exact personal income tax liability, and generates verifiable reports for the FCT-IRS or LIRS in minutes.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16 w-full sm:w-auto">
               <SignUpLink className="flex items-center justify-center w-full sm:w-auto gap-2 bg-primary text-white px-8 py-4 rounded-xl text-base font-semibold transition-all hover:bg-[#e09228] hover:-translate-y-0.5 shadow-[0_4px_14px_rgba(240,160,48,0.4)] hover:shadow-[0_6px_20px_rgba(240,160,48,0.5)]">

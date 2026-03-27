@@ -1,4 +1,5 @@
-import { adminProcedure, router } from '../../trpc/trpc.js';
+import { router, adminProcedure, protectedProcedure } from '../../trpc/trpc.js';
+import { TRPCError } from '@trpc/server';
 import { z } from 'zod';
 
 export const adminAuditRouter = router({
@@ -61,6 +62,59 @@ export const adminAuditRouter = router({
                 items,
                 nextCursor,
             };
+        }),
+
+    // ─── List User Activity Logs ────────────────────────────
+    listUserLogs: adminProcedure
+        .input(
+            z.object({
+                limit: z.number().min(1).max(100).default(50),
+                cursor: z.string().optional(),
+                userId: z.string().optional(),
+                actionCode: z.string().optional(),
+                search: z.string().optional(),
+            })
+        )
+        .query(async ({ ctx, input }) => {
+            if (ctx.admin.role !== 'SUPER_ADMIN' && ctx.admin.role !== 'OPERATIONS_ADMIN') {
+                throw new TRPCError({ code: 'FORBIDDEN', message: 'Insufficient permissions' });
+            }
+
+            const { limit, cursor, userId, actionCode, search } = input;
+
+            const where: any = {};
+            if (userId && userId !== 'ALL') {
+                where.userId = userId;
+            }
+            if (actionCode && actionCode !== 'ALL') {
+                where.action = actionCode;
+            }
+            if (search) {
+                where.OR = [
+                    { entityType: { contains: search, mode: 'insensitive' } },
+                    { user: { email: { contains: search, mode: 'insensitive' } } },
+                ];
+            }
+
+            const items = await ctx.prisma.auditLog.findMany({
+                take: limit + 1,
+                cursor: cursor ? { id: cursor } : undefined,
+                where,
+                orderBy: { createdAt: 'desc' },
+                include: {
+                    user: {
+                        select: { name: true, email: true }
+                    }
+                }
+            });
+
+            let nextCursor: typeof cursor | undefined = undefined;
+            if (items.length > limit) {
+                const nextItem = items.pop();
+                nextCursor = nextItem!.id;
+            }
+
+            return { items, nextCursor };
         }),
 
     exportLogs: adminProcedure

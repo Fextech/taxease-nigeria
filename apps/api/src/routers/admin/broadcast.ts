@@ -279,13 +279,21 @@ async function executeBroadcastSend(
 
     for (const user of users) {
         try {
+            let resendEmailId: string | null = null;
+
             if (channel === 'EMAIL' || channel === 'BOTH') {
-                await sendBroadcastEmail({
+                const result = await sendBroadcastEmail({
                     email: user.email,
                     name: user.name || '',
                     subject,
                     body,
+                    tags: [
+                        { name: 'message_type', value: 'broadcast' },
+                        { name: 'user_id', value: user.id },
+                        { name: 'broadcast_id', value: broadcastId },
+                    ],
                 });
+                resendEmailId = result.providerMessageId;
             }
 
             if (channel === 'IN_APP' || channel === 'BOTH') {
@@ -304,7 +312,10 @@ async function executeBroadcastSend(
                     broadcastId,
                     userId: user.id,
                     channel: channel as any,
-                    deliveredAt: new Date(),
+                    resendEmailId,
+                    deliveryStatus: channel === 'IN_APP' ? 'NOT_APPLICABLE' : 'SENT',
+                    lastEventType: channel === 'IN_APP' ? 'in_app.sent' : 'email.sent',
+                    lastEventAt: new Date(),
                 }
             });
 
@@ -318,6 +329,9 @@ async function executeBroadcastSend(
                     broadcastId,
                     userId: user.id,
                     channel: channel as any,
+                    deliveryStatus: 'FAILED',
+                    lastEventType: 'email.failed',
+                    lastEventAt: new Date(),
                     failedAt: new Date(),
                     failReason: err instanceof Error ? err.message : String(err),
                 }

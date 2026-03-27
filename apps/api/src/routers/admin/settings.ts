@@ -121,7 +121,7 @@ export const adminSettingsRouter = router({
                 resend: { status: 'healthy', lastPing: new Date().toISOString() },
             };
         }),
-        
+
     pingIntegration: adminProcedure
         .input(z.object({ service: z.string() }))
         .mutation(async ({ input }) => {
@@ -215,7 +215,7 @@ export const adminSettingsRouter = router({
         .input(z.object({ pages: z.array(z.string()) }))
         .mutation(async ({ ctx, input }) => {
             const jsonValue = JSON.stringify(input.pages);
-            
+
             await ctx.prisma.appConfig.upsert({
                 where: { key: 'how_to_guide_pages' },
                 create: { key: 'how_to_guide_pages', value: jsonValue, description: 'JSON array of HTML strings for the How-To guide', updatedBy: ctx.admin.id },

@@ -83,6 +83,23 @@ export async function POST(request: Request) {
                 }
             }
 
+            // ── Layer 1: MIME type + extension validation ─────────────────────
+            const allowedMimeTypes = ['application/pdf'];
+            const allowedExtensions = ['.pdf'];
+            const fileExtension = (data.filename as string)
+                .toLowerCase()
+                .slice((data.filename as string).lastIndexOf('.'));
+
+            if (
+                !allowedMimeTypes.includes(data.mimeType) ||
+                !allowedExtensions.includes(fileExtension)
+            ) {
+                return NextResponse.json(
+                    { error: 'Only PDF bank statements are accepted. Please download your statement as a PDF from your bank app or internet banking portal.' },
+                    { status: 400 }
+                );
+            }
+
             // Generate S3 key and presigned URL directly
             const sanitized = data.filename.replace(/[^a-zA-Z0-9._-]/g, '_');
             const s3Key = `statements/${session.user.id}/${data.workspaceId}/${data.month}/${Date.now()}_${sanitized}`;

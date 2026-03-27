@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import bcrypt from "bcryptjs";
+import { sendPasswordChangedEmail } from '@/lib/mail';
 
 /**
  * POST /api/settings
@@ -32,6 +33,11 @@ export async function POST(request: Request) {
                     stateOfResidence: true,
                     plan: true,
                     mfaEnabled: true,
+                    password: true,
+                    accounts: {
+                        where: { provider: 'google' },
+                        select: { id: true },
+                    },
                 },
             });
 
@@ -39,7 +45,18 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'User not found' }, { status: 404 });
             }
 
-            return NextResponse.json(user);
+            return NextResponse.json({
+                name: user.name,
+                email: user.email,
+                phone: user.phone,
+                taxIdentificationNumber: user.taxIdentificationNumber,
+                professionalCategory: user.professionalCategory,
+                stateOfResidence: user.stateOfResidence,
+                plan: user.plan,
+                mfaEnabled: user.mfaEnabled,
+                hasPassword: Boolean(user.password),
+                hasGoogleAccount: user.accounts.length > 0,
+            });
         }
 
         if (action === 'update') {
@@ -91,7 +108,48 @@ export async function POST(request: Request) {
                 data: { password: hashedPassword },
             });
 
+            // Send security notification email (fire-and-forget)
+            if (user.email) {
+                sendPasswordChangedEmail(user.email, user.name ?? "").catch((err) =>
+                    console.error("Failed to send password changed email:", err)
+                );
+            }
+
             return NextResponse.json({ success: true, message: "Password updated successfully" });
+        }
+
+        if (action === 'set_password') {
+            const { newPassword } = data;
+            if (!newPassword) {
+                return NextResponse.json({ error: "New password is required" }, { status: 400 });
+            }
+
+            if (
+                typeof newPassword !== "string" ||
+                newPassword.length < 8 ||
+                !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(newPassword)
+            ) {
+                return NextResponse.json({
+                    error: "Password must be at least 8 characters and include uppercase, lowercase, and a number",
+                }, { status: 400 });
+            }
+
+            const user = await prisma.user.findUnique({ where: { id: session.user.id } });
+            if (!user) {
+                return NextResponse.json({ error: "User not found" }, { status: 404 });
+            }
+
+            if (user.password) {
+                return NextResponse.json({ error: "Password already set. Please use change password instead." }, { status: 400 });
+            }
+
+            const hashedPassword = await bcrypt.hash(newPassword, 12);
+            await prisma.user.update({
+                where: { id: session.user.id },
+                data: { password: hashedPassword },
+            });
+
+            return NextResponse.json({ success: true, message: "Password setup completed successfully" });
         }
 
         return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
