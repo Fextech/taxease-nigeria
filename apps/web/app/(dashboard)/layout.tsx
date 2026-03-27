@@ -7,6 +7,7 @@ import Header from "@/components/dashboard/Header";
 import { WorkspaceProvider } from "@/components/dashboard/WorkspaceContext";
 import HowToGuideModal from "@/components/HowToGuideModal";
 import { useInactivityTimeout } from "@/hooks/useInactivityTimeout";
+import MobileNav from "@/components/dashboard/MobileNav";
 
 function InactivityWarning({ onDismiss }: { onDismiss: () => void }) {
   return (
@@ -14,7 +15,7 @@ function InactivityWarning({ onDismiss }: { onDismiss: () => void }) {
       role="alert"
       style={{
         position: "fixed",
-        bottom: 24,
+        bottom: "var(--inactivity-warning-bottom, 24px)",
         left: "50%",
         transform: "translateX(-50%)",
         zIndex: 9999,
@@ -82,6 +83,7 @@ function DashboardWithTimeout({ children, pageTitle, collapsed, setCollapsed }: 
           <main className="dash-content">{children}</main>
         </div>
       </div>
+      <MobileNav />
       {isWarning && <InactivityWarning onDismiss={resetTimer} />}
     </>
   );

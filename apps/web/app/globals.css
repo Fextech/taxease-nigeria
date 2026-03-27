@@ -2410,3 +2410,263 @@
   .mfa-card { padding: 36px 24px; }
   .mfa-code-input { width: 42px; height: 50px; font-size: 20px; }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE NAVIGATION — bottom tab bar (≤ 768px)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* Hidden on desktop */
+.mobile-nav {
+  display: none;
+}
+
+@media (max-width: 768px) {
+
+  /* ─── Bottom nav bar ────────────────────────────────────── */
+  .mobile-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 50;
+    height: 64px;
+    background: var(--te-surface);
+    border-top: 1px solid rgba(35, 73, 77, 0.1);
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
+    /* Safe area for iPhones with home indicator */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .mobile-nav-item {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    text-decoration: none;
+    color: var(--te-text-muted);
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 8px 4px;
+    transition: color 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-nav-item--active {
+    color: var(--te-primary);
+  }
+
+  .mobile-nav-icon {
+    font-size: 22px;
+    line-height: 1;
+    transition: transform 0.15s;
+  }
+
+  .mobile-nav-item--active .mobile-nav-icon {
+    font-variation-settings: 'FILL' 1;
+  }
+
+  .mobile-nav-item:active .mobile-nav-icon {
+    transform: scale(0.9);
+  }
+
+  .mobile-nav-label {
+    font-size: 10px;
+    line-height: 1;
+  }
+
+  /* ─── Hide sidebar on mobile ────────────────────────────── */
+  .sidebar {
+    display: none !important;
+  }
+
+  /* ─── Layout: no left margin, add bottom padding for nav bar */
+  .dash-main,
+  .dash-main--collapsed {
+    margin-left: 0 !important;
+    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  }
+
+  /* ─── Header ────────────────────────────────────────────── */
+  .dash-header {
+    padding: 0 12px;
+    height: 56px;
+  }
+
+  /* Shrink title on narrow screens */
+  .dash-header-title {
+    font-size: 15px;
+  }
+
+  /* Compact workspace selector text */
+  .dash-year-text {
+    font-size: 12px;
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Hide the vertical divider in the header */
+  .dash-header-divider {
+    display: none;
+  }
+
+  /* Hide separator between profile and notif buttons */
+  .dash-header-sep {
+    display: none;
+  }
+
+  /* Tighten header right slot */
+  .dash-header-right {
+    gap: 8px;
+  }
+
+  /* ─── Content padding ───────────────────────────────────── */
+  .dash-content {
+    padding: 16px 12px;
+  }
+
+  /* ─── Overview metric cards: 2 columns on mobile ───────── */
+  .metric-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .metric-card {
+    padding: 16px;
+  }
+
+  .metric-value {
+    font-size: 18px;
+  }
+
+  /* ─── Content row: stack vertically ─────────────────────── */
+  .content-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* ─── Annotation stat cards: 2 per row ──────────────────── */
+  .anno-stats {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px !important;
+  }
+
+  .anno-stat-card {
+    padding: 14px !important;
+  }
+
+  /* ─── Month cards: scroll horizontally ──────────────────── */
+  .month-cards-row {
+    overflow-x: auto;
+    flex-wrap: nowrap !important;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .month-cards-row::-webkit-scrollbar { display: none; }
+
+  .month-card {
+    min-width: 64px;
+    flex-shrink: 0;
+  }
+
+  /* ─── Table: horizontal scroll wrapper ──────────────────── */
+  .txn-panel {
+    border-radius: 8px !important;
+  }
+
+  .txn-header-bar {
+    flex-wrap: wrap;
+    gap: 8px !important;
+    padding: 10px 12px !important;
+  }
+
+  .txn-tabs {
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .txn-tabs::-webkit-scrollbar { display: none; }
+
+  /* Table stays scrollable */
+  .anno-table {
+    font-size: 12px !important;
+  }
+
+  /* ─── Annotation panel: full-width slide-up on mobile ───── */
+  .anno-panel {
+    position: fixed !important;
+    top: auto !important;
+    right: 0 !important;
+    bottom: 64px !important; /* above mobile nav */
+    left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 70vh !important;
+    border-top-left-radius: 16px !important;
+    border-top-right-radius: 16px !important;
+    border-bottom-left-radius: 0 !important;
+    border-bottom-right-radius: 0 !important;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.15) !important;
+    z-index: 45;
+    overflow-y: auto;
+  }
+
+  /* ─── Modals: full width on small screens ───────────────── */
+  .modal-card {
+    margin: 16px !important;
+    max-width: calc(100% - 32px) !important;
+    border-radius: 16px !important;
+  }
+
+  /* ─── Statements page: stacked layout ───────────────────── */
+  .stmts-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ─── Reports page ───────────────────────────────────────── */
+  .report-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* ─── Settings: full-width tabs ─────────────────────────── */
+  .settings-tabs {
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .settings-tabs::-webkit-scrollbar { display: none; }
+
+  /* ─── Inactivity warning: sits above the 64px bottom nav ── */
+  :root {
+    --inactivity-warning-bottom: calc(64px + env(safe-area-inset-bottom, 0px) + 12px);
+  }
+}
+
+@media (max-width: 480px) {
+  /* Extra-small screens: single-column metric grid */
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .anno-stats {
+    grid-template-columns: 1fr !important;
+  }
+
+  .dash-year-text {
+    max-width: 80px;
+  }
+
+  /* Bar chart horizontal scroll instead of overflow-hidden */
+  .bar-chart {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
