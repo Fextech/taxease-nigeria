@@ -1,4 +1,5 @@
 import logging
+import os
 from datetime import datetime
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
@@ -19,7 +20,10 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=[
+        os.getenv("APP_URL", "http://localhost:3000"),
+        os.getenv("API_URL", "http://localhost:3001"),
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )

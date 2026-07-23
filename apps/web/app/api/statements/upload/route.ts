@@ -151,35 +151,35 @@ export async function POST(request: Request) {
                 }
             });
 
-            // Enqueue job for background worker
+            // Dispatch parse-statement Cloud Task
             try {
-                const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-                const parsedUrl = new URL(REDIS_URL);
-                const { Queue } = await import('bullmq');
-
-                const parseStatementQueue = new Queue('parse-statement', {
-                    connection: {
-                        host: parsedUrl.hostname,
-                        port: Number(parsedUrl.port) || 6379,
-                        password: parsedUrl.password || undefined,
-                        tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
-                        maxRetriesPerRequest: null,
-                        enableReadyCheck: false,
+                const { CloudTasksClient } = await import('@google-cloud/tasks');
+                const tasksClient = new CloudTasksClient();
+                const parent = tasksClient.queuePath(
+                    process.env.GCP_PROJECT_ID!,
+                    process.env.GCP_TASKS_LOCATION || 'europe-west1',
+                    process.env.GCP_TASKS_QUEUE    || 'banklens-jobs'
+                );
+                const taskPayload = JSON.stringify({
+                    statementId: statement.id,
+                    pdfPassword: data.pdfPassword,
+                });
+                await tasksClient.createTask({
+                    parent,
+                    task: {
+                        httpRequest: {
+                            httpMethod: 'POST' as const,
+                            url: `${process.env.WORKER_URL}/jobs/parse-statement`,
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Worker-Secret': process.env.WORKER_SECRET!,
+                            },
+                            body: Buffer.from(taskPayload).toString('base64'),
+                        },
                     },
                 });
-
-                await parseStatementQueue.add(
-                    'parse',
-                    { statementId: statement.id, pdfPassword: data.pdfPassword },
-                    {
-                        attempts: 3,
-                        backoff: { type: 'exponential', delay: 5000 },
-                        removeOnComplete: 100,
-                        removeOnFail: 200,
-                    }
-                );
             } catch (err) {
-                console.error("[statements/upload] Failed to enqueue job:", err);
+                console.error('[statements/upload] Failed to dispatch Cloud Task:', err);
             }
 
             return NextResponse.json(statement);

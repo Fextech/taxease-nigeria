@@ -1,36 +1,72 @@
-import { Queue } from 'bullmq';
+import { CloudTasksClient } from '@google-cloud/tasks';
 
-// ─── Queues ──────────────────────────────────────────────
+// ─── Cloud Tasks configuration ───────────────────────────
 
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const parsedUrl = new URL(REDIS_URL);
+const tasksClient = new CloudTasksClient();
 
-const parseStatementQueue = new Queue('parse-statement', {
-    connection: {
-        host: parsedUrl.hostname,
-        port: Number(parsedUrl.port) || 6379,
-        password: parsedUrl.password || undefined,
-        tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
-        maxRetriesPerRequest: null,
-        enableReadyCheck: false,
-    },
-});
+const GCP_PROJECT  = process.env.GCP_PROJECT_ID!;
+const GCP_LOCATION = process.env.GCP_TASKS_LOCATION || 'europe-west1';
+const GCP_QUEUE    = process.env.GCP_TASKS_QUEUE    || 'banklens-jobs';
+const WORKER_URL   = process.env.WORKER_URL!;
+const WORKER_SECRET = process.env.WORKER_SECRET!;
+
+function getQueuePath(): string {
+    return tasksClient.queuePath(GCP_PROJECT, GCP_LOCATION, GCP_QUEUE);
+}
+
+// ─── Dispatchers ─────────────────────────────────────────
 
 /**
- * Enqueue a parse-statement job for the worker to process.
+ * Dispatch a parse-statement Cloud Task.
+ * Replaces the previous BullMQ enqueueParseJob() function.
+ * Call signature is unchanged so statements.ts needs no edits.
  */
-export async function enqueueParseJob(statementId: string) {
-    return parseStatementQueue.add(
-        'parse',
-        { statementId },
-        {
-            attempts: 3,
-            backoff: {
-                type: 'exponential',
-                delay: 5000,
+export async function enqueueParseJob(
+    statementId: string,
+    pdfPassword?: string
+): Promise<void> {
+    const payload = JSON.stringify({ statementId, pdfPassword });
+
+    await tasksClient.createTask({
+        parent: getQueuePath(),
+        task: {
+            httpRequest: {
+                httpMethod: 'POST' as const,
+                url: `${WORKER_URL}/jobs/parse-statement`,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Worker-Secret': WORKER_SECRET,
+                },
+                body: Buffer.from(payload).toString('base64'),
             },
-            removeOnComplete: 100,
-            removeOnFail: 200,
-        }
-    );
+        },
+    });
+}
+
+/**
+ * Dispatch a generate-report Cloud Task.
+ * Called from apps/web/app/api/reports/route.ts for the email-report action.
+ */
+export async function enqueueReportJob(payload: {
+    workspaceId: string;
+    userId: string;
+    userEmail: string;
+    taxYear?: number;
+    additionalDeductions?: { label: string; amount: string }[];
+    annualRentPaid?: string;
+}): Promise<void> {
+    await tasksClient.createTask({
+        parent: getQueuePath(),
+        task: {
+            httpRequest: {
+                httpMethod: 'POST' as const,
+                url: `${WORKER_URL}/jobs/generate-report`,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Worker-Secret': WORKER_SECRET,
+                },
+                body: Buffer.from(JSON.stringify(payload)).toString('base64'),
+            },
+        },
+    });
 }

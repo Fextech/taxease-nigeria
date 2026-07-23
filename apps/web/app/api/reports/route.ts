@@ -2,19 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { computeTax, type Relief } from '@banklens/shared';
-import { Queue } from 'bullmq';
-
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const parsedUrl = new URL(REDIS_URL);
-
-const redisConnection = {
-    host: parsedUrl.hostname,
-    port: Number(parsedUrl.port) || 6379,
-    password: parsedUrl.password || undefined,
-    tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-};
+import { CloudTasksClient } from '@google-cloud/tasks';
 
 const REPORT_CATEGORIES = [
     'BUSINESS',
@@ -25,8 +13,6 @@ const REPORT_CATEGORIES = [
     'EXEMPT',
     'UNCLASSIFIED',
 ] as const;
-
-const generateReportQueue = new Queue('generate-report', { connection: redisConnection });
 
 /**
  * POST /api/reports
@@ -219,14 +205,34 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
             }
 
-            // Enqueue report generation job
-            await generateReportQueue.add('generate-report', {
+            // Dispatch generate-report Cloud Task
+            const tasksClient = new CloudTasksClient();
+            const parent = tasksClient.queuePath(
+                process.env.GCP_PROJECT_ID!,
+                process.env.GCP_TASKS_LOCATION || 'europe-west1',
+                process.env.GCP_TASKS_QUEUE    || 'banklens-jobs'
+            );
+            const taskPayload = JSON.stringify({
                 workspaceId: data.workspaceId,
                 userId: session.user.id,
                 userEmail: session.user.email,
                 taxYear: workspace.taxYear,
                 additionalDeductions: data.additionalDeductions,
                 annualRentPaid: data.annualRentPaid,
+            });
+            await tasksClient.createTask({
+                parent,
+                task: {
+                    httpRequest: {
+                        httpMethod: 'POST' as const,
+                        url: `${process.env.WORKER_URL}/jobs/generate-report`,
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Worker-Secret': process.env.WORKER_SECRET!,
+                        },
+                        body: Buffer.from(taskPayload).toString('base64'),
+                    },
+                },
             });
 
             return NextResponse.json({ success: true, message: 'Report generation started' });

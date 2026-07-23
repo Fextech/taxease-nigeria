@@ -1,0 +1,32 @@
+# ─── Node ────────────────────────────────────────────────
+node_modules
+**/node_modules
+
+# ─── Build outputs ────────────────────────────────────────
+dist
+**/dist
+.next
+**/.next
+.turbo
+**/.turbo
+
+# ─── Python ───────────────────────────────────────────────
+apps/parser/.venv
+**/__pycache__
+**/*.pyc
+**/*.pyo
+
+# ─── Secrets & local config ───────────────────────────────
+.env
+**/.env
+*.env.local
+
+# ─── VCS ─────────────────────────────────────────────────
+.git
+.gitignore
+
+# ─── Dev artifacts ────────────────────────────────────────
+outputs
+docker
+*.md
+apps/*/tsconfig.tsbuildinfo
