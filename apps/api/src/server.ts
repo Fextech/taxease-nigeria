@@ -10,7 +10,8 @@ import { appRouter, type AppRouter } from './routers/index.js';
 import { startScheduledBroadcastPoller } from './routers/admin/broadcast.js';
 import { getAdminJwtSecret } from './lib/admin-jwt.js';
 
-const PORT = Number(process.env.API_PORT) || 3001;
+// Cloud Run supplies PORT. API_PORT remains a convenient local override.
+const PORT = Number(process.env.PORT || process.env.API_PORT) || 3001;
 
 async function main() {
     // Fail fast on boot if admin JWT signing is misconfigured.

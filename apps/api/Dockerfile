@@ -45,6 +45,7 @@ COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/package.json
 
-EXPOSE 3001
+# Cloud Run routes to the port supplied in $PORT (normally 8080).
+EXPOSE 8080
 
 CMD ["node", "apps/api/dist/server.js"]

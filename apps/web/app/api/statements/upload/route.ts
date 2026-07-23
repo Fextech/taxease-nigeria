@@ -136,19 +136,10 @@ export async function POST(request: Request) {
                     originalFilename: data.originalFilename,
                     mimeType: data.mimeType,
                     fileHash: data.fileHash || null,
-                    parseStatus: 'PROCESSING',
+                    // The Cloud Tasks worker atomically claims UPLOADED jobs
+                    // before switching them to PROCESSING.
+                    parseStatus: 'UPLOADED',
                 },
-            });
-
-            // Create notification
-            await prisma.notification.create({
-                data: {
-                    userId: session.user.id,
-                    title: 'Statement Uploaded',
-                    message: `File "${data.originalFilename}" has been uploaded and queued for processing. This may take a few minutes.`,
-                    type: 'INFO',
-                    link: '/statements'
-                }
             });
 
             // Dispatch parse-statement Cloud Task
@@ -176,7 +167,28 @@ export async function POST(request: Request) {
                 });
             } catch (err) {
                 console.error('[statements/upload] Failed to dispatch Cloud Task:', err);
+                await prisma.statement.update({
+                    where: { id: statement.id },
+                    data: {
+                        parseStatus: 'ERROR',
+                        errorMessage: 'Unable to queue processing. Please retry from the statement list.',
+                    },
+                });
+                return NextResponse.json(
+                    { error: 'Your statement was uploaded but could not be queued for processing. Please retry shortly.' },
+                    { status: 503 }
+                );
             }
+
+            await prisma.notification.create({
+                data: {
+                    userId: session.user.id,
+                    title: 'Statement Uploaded',
+                    message: `File "${data.originalFilename}" has been uploaded and queued for processing. This may take a few minutes.`,
+                    type: 'INFO',
+                    link: '/statements'
+                }
+            });
 
             return NextResponse.json(statement);
 

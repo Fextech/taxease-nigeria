@@ -69,6 +69,7 @@ COPY --from=builder /app/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /app/apps/web/public ./apps/web/public
 
 # Cloud Run injects PORT; Next.js standalone server reads it automatically
-EXPOSE 3000
+# Cloud Run routes to the port supplied in $PORT (normally 8080).
+EXPOSE 8080
 
 CMD ["node", "apps/web/server.js"]

@@ -18,8 +18,7 @@ function getQueuePath(): string {
 
 /**
  * Dispatch a parse-statement Cloud Task.
- * Replaces the previous BullMQ enqueueParseJob() function.
- * Call signature is unchanged so statements.ts needs no edits.
+ * Queue a parse request for the Cloud Run worker.
  */
 export async function enqueueParseJob(
     statementId: string,

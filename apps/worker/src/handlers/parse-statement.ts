@@ -110,9 +110,23 @@ export async function parseStatementHandler(
             return;
         }
 
-        // Idempotency guard: if already READY, skip silently
-        if (statement.parseStatus === 'READY') {
-            logger.info({ statementId }, '⏭️  Statement already READY — skipping');
+        // Cloud Tasks has at-least-once delivery semantics. Atomically claim a
+        // pending/retryable job so duplicate deliveries cannot insert the same
+        // transactions twice.
+        const claim = await prisma.statement.updateMany({
+            where: {
+                id: statementId,
+                deletedAt: null,
+                parseStatus: { in: ['UPLOADED', 'ERROR'] },
+            },
+            data: { parseStatus: 'PROCESSING', errorMessage: null },
+        });
+
+        if (claim.count === 0) {
+            logger.info(
+                { statementId, parseStatus: statement.parseStatus },
+                '⏭️  Statement is already being processed or complete — skipping duplicate task'
+            );
             reply.code(200).send({ success: true, skipped: true });
             return;
         }
@@ -122,7 +136,7 @@ export async function parseStatementHandler(
         try {
             fileBuffer = await downloadFromS3(statement.s3Key);
             logger.info({ statementId, size: fileBuffer.length }, '⬇️  Downloaded from S3');
-        } catch (err) {
+        } catch {
             logger.warn({ statementId }, '⚠️  S3 download failed');
             await prisma.statement.update({
                 where: { id: statementId },
@@ -175,46 +189,52 @@ export async function parseStatementHandler(
         }
 
         // ── Save transactions ──────────────────────────────
-        await prisma.transaction.createMany({
-            data: parseResult.transactions.map((tx) => ({
-                statementId,
-                transactionDate: new Date(tx.transaction_date),
-                description: tx.description,
-                creditAmount: BigInt(tx.credit_amount),
-                debitAmount: BigInt(tx.debit_amount),
-                balance: tx.balance != null ? BigInt(tx.balance) : null,
-                channel: tx.channel || null,
-                confidence: tx.confidence,
-            })),
-        });
+        await prisma.$transaction([
+            prisma.transaction.createMany({
+                data: parseResult.transactions.map((tx) => ({
+                    statementId,
+                    transactionDate: new Date(tx.transaction_date),
+                    description: tx.description,
+                    creditAmount: BigInt(tx.credit_amount),
+                    debitAmount: BigInt(tx.debit_amount),
+                    balance: tx.balance != null ? BigInt(tx.balance) : null,
+                    channel: tx.channel || null,
+                    confidence: tx.confidence,
+                })),
+            }),
+            prisma.statement.update({
+                where: { id: statementId },
+                data: {
+                    parseStatus: 'READY',
+                    bankName: parseResult.bank_name,
+                    confidenceScore: parseResult.overall_confidence,
+                    rowCount: parseResult.row_count,
+                    errorMessage: null,
+                },
+            }),
+        ]);
 
         logger.info(
             { statementId, count: parseResult.transactions.length },
             '💾 Saved transactions to database'
         );
 
-        // ── Mark as READY ──────────────────────────────────
-        await prisma.statement.update({
-            where: { id: statementId },
-            data: {
-                parseStatus: 'READY',
-                bankName: parseResult.bank_name,
-                confidenceScore: parseResult.overall_confidence,
-                rowCount: parseResult.row_count,
-                errorMessage: null,
-            },
-        });
-
         // ── Notify user ────────────────────────────────────
-        await prisma.notification.create({
-            data: {
-                userId: statement.workspace.userId,
-                title: 'Statement Processed',
-                message: `Successfully extracted ${parseResult.row_count} transactions from your statement.`,
-                type: 'SUCCESS',
-                link: '/statements',
-            },
-        });
+        // A notification failure must not make Cloud Tasks redeliver an
+        // already committed parse result.
+        try {
+            await prisma.notification.create({
+                data: {
+                    userId: statement.workspace.userId,
+                    title: 'Statement Processed',
+                    message: `Successfully extracted ${parseResult.row_count} transactions from your statement.`,
+                    type: 'SUCCESS',
+                    link: '/statements',
+                },
+            });
+        } catch (notificationError) {
+            logger.error({ statementId, notificationError }, 'Failed to create processing notification');
+        }
 
         logger.info({ statementId }, '✅ parse-statement completed');
         reply.code(200).send({ success: true, rowCount: parseResult.row_count });

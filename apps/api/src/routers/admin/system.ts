@@ -40,7 +40,7 @@ export const adminSystemRouter = router({
             statuses.push({ id: 'db', name: 'PostgreSQL Db', status: 'down', ping: Date.now() - dbStart, type: 'infrastructure' });
         }
 
-        // 2. Worker health check (replaces Redis check)
+        // 2. Worker health check
         const workerUrl = process.env.WORKER_URL;
         if (workerUrl) {
             const workerPing = await pingUrl(`${workerUrl}/health`);
@@ -82,7 +82,7 @@ export const adminSystemRouter = router({
     }),
 
     /**
-     * Job queue stats — now derived from DB statement counts instead of BullMQ.
+     * Processing statistics derived from statement status counts.
      * active    = PROCESSING
      * completed = READY
      * failed    = ERROR
@@ -127,7 +127,7 @@ export const adminSystemRouter = router({
 
     getDeploymentInfo: adminProcedure.query(async () => {
         // Cloud Run sets K_REVISION; fall back to a default
-        const revision = process.env.K_REVISION || process.env.RAILWAY_GIT_COMMIT_SHA?.substring(0, 7) || 'v1.4.2';
+        const revision = process.env.K_REVISION || 'v1.4.2';
         return {
             version: revision,
             commitHash: revision,
@@ -137,15 +137,37 @@ export const adminSystemRouter = router({
     }),
 
     /**
-     * Flush stuck PROCESSING statements back to UPLOADED so Cloud Tasks
-     * can retry them (or the admin can manually re-trigger).
-     * Replaces the old BullMQ flushQueue.
+     * Requeue failed statements through Cloud Tasks. Updating a database status
+     * alone cannot create a new Cloud Task, so each retry must be dispatched.
      */
     flushQueue: superAdminProcedure.mutation(async ({ ctx }) => {
-        const result = await ctx.prisma.statement.updateMany({
-            where: { parseStatus: 'PROCESSING', deletedAt: null },
-            data: { parseStatus: 'UPLOADED', errorMessage: null },
+        const failedStatements = await ctx.prisma.statement.findMany({
+            where: { parseStatus: 'ERROR', deletedAt: null },
+            select: { id: true },
         });
-        return { success: true, reset: result.count };
+
+        let queued = 0;
+        let failed = 0;
+        for (const statement of failedStatements) {
+            await ctx.prisma.statement.update({
+                where: { id: statement.id },
+                data: { parseStatus: 'UPLOADED', errorMessage: null },
+            });
+            try {
+                const { enqueueParseJob } = await import('../../services/queue.service.js');
+                await enqueueParseJob(statement.id);
+                queued += 1;
+            } catch (error) {
+                failed += 1;
+                await ctx.prisma.statement.update({
+                    where: { id: statement.id },
+                    data: {
+                        parseStatus: 'ERROR',
+                        errorMessage: `Failed to requeue: ${error instanceof Error ? error.message : String(error)}`,
+                    },
+                });
+            }
+        }
+        return { success: failed === 0, reset: queued, failed };
     }),
 });

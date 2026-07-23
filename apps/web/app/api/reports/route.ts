@@ -184,27 +184,6 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
             }
 
-            // Increment report count
-            await prisma.workspace.update({
-                where: { id: workspace.id },
-                data: { reportGenerationCount: { increment: 1 } }
-            });
-
-            // Audit log
-            await prisma.auditLog.create({
-                data: {
-                    userId: session.user.id,
-                    entityType: 'Workspace',
-                    entityId: workspace.id,
-                    action: 'GENERATE_REPORT',
-                    newValue: { taxYear: workspace.taxYear }
-                }
-            });
-
-            if (!workspace || workspace.userId !== session.user.id) {
-                return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
-            }
-
             // Dispatch generate-report Cloud Task
             const tasksClient = getTasksClient();
             const parent = getQueuePath(tasksClient);
@@ -229,6 +208,22 @@ export async function POST(request: Request) {
                         body: Buffer.from(taskPayload).toString('base64'),
                     },
                 },
+            });
+
+            // Only record consumption after Cloud Tasks has accepted the job.
+            await prisma.workspace.update({
+                where: { id: workspace.id },
+                data: { reportGenerationCount: { increment: 1 } }
+            });
+
+            await prisma.auditLog.create({
+                data: {
+                    userId: session.user.id,
+                    entityType: 'Workspace',
+                    entityId: workspace.id,
+                    action: 'GENERATE_REPORT',
+                    newValue: { taxYear: workspace.taxYear }
+                }
             });
 
             return NextResponse.json({ success: true, message: 'Report generation started' });

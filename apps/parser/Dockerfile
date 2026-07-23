@@ -14,11 +14,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY apps/parser/app/ ./app/
 
-# Cloud Run injects PORT; uvicorn default is 8000
-EXPOSE 8000
+# Cloud Run injects PORT; retain 8000 for local containers.
+EXPOSE 8080
 
-CMD ["uvicorn", "app.main:app", \
-     "--host", "0.0.0.0", \
-     "--port", "8000", \
-     "--proxy-headers", \
-     "--forwarded-allow-ips", "*"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips '*'"]

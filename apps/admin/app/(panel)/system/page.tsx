@@ -135,10 +135,10 @@ export default function SystemHealthPage() {
 
         {/* Right Column */}
         <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-          {/* BullMQ Job Queue */}
+          {/* Cloud Tasks processing */}
           <div className="admin-card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-              <h3 className="admin-card-title">Job Queue (BullMQ)</h3>
+              <h3 className="admin-card-title">Cloud Tasks Processing</h3>
               <span className="admin-badge admin-badge--pro">Processing</span>
             </div>
             
@@ -174,14 +174,13 @@ export default function SystemHealthPage() {
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <button className="admin-btn admin-btn--secondary" style={{ width: "100%", justifyContent: "center" }}>Open BullBoard Dashboard</button>
                   <button 
                     className="admin-btn admin-btn--danger" 
                     style={{ width: "100%", justifyContent: "center" }}
                     disabled={flushMutation.isPending || !queueStats?.failed}
                     onClick={() => flushMutation.mutate()}
                   >
-                    {flushMutation.isPending ? "Flushing..." : "Flush Failed Jobs"}
+                    {flushMutation.isPending ? "Retrying..." : "Retry Failed Jobs"}
                   </button>
                 </div>
               </>
@@ -192,8 +191,8 @@ export default function SystemHealthPage() {
           <div className="admin-card" style={{ borderColor: "rgba(0,240,255,0.2)" }}>
              <h3 className="admin-card-title" style={{ marginBottom: 12 }}>Infrastructure Actions</h3>
              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 4 }}>
-               <li><button className="admin-sidebar-link" style={{ width: "100%", fontSize: 13 }}><span className="material-symbols-outlined" style={{ fontSize: 16 }}>restart_alt</span> Restart Worker Pool</button></li>
-               <li><button className="admin-sidebar-link" style={{ width: "100%", fontSize: 13 }}><span className="material-symbols-outlined" style={{ fontSize: 16 }}>memory</span> Clear Redis Cache</button></li>
+               <li><span className="admin-sidebar-link" style={{ width: "100%", fontSize: 13 }}><span className="material-symbols-outlined" style={{ fontSize: 16 }}>cloud</span> Worker runs on Cloud Run</span></li>
+               <li><span className="admin-sidebar-link" style={{ width: "100%", fontSize: 13 }}><span className="material-symbols-outlined" style={{ fontSize: 16 }}>queue</span> Tasks are managed by Cloud Tasks</span></li>
                <li><button className="admin-sidebar-link" style={{ width: "100%", fontSize: 13 }}><span className="material-symbols-outlined" style={{ fontSize: 16 }}>sync</span> Sync Paystack Plans</button></li>
              </ul>
           </div>

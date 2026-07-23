@@ -163,14 +163,24 @@ export const statementsRouter = router({
                 },
             });
 
-            // Enqueue parse job
-            await enqueueParseJob(statement.id);
-
-            // Update statement status to PROCESSING
-            await ctx.prisma.statement.update({
-                where: { id: statement.id },
-                data: { parseStatus: 'PROCESSING' },
-            });
+            // Enqueue parse job. The HTTP worker atomically claims UPLOADED
+            // statements and changes them to PROCESSING.
+            try {
+                await enqueueParseJob(statement.id);
+            } catch (error) {
+                await ctx.prisma.statement.update({
+                    where: { id: statement.id },
+                    data: {
+                        parseStatus: 'ERROR',
+                        errorMessage: 'Unable to queue processing. Please retry shortly.',
+                    },
+                });
+                throw new TRPCError({
+                    code: 'INTERNAL_SERVER_ERROR',
+                    message: 'Statement uploaded but could not be queued for processing.',
+                    cause: error,
+                });
+            }
 
             await logAction({
                 userId: ctx.user.id,
