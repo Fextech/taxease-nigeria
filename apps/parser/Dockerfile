@@ -8,10 +8,11 @@ RUN apt-get update && apt-get install -y \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+# Build context is the monorepo root, so prefix paths with apps/parser/
+COPY apps/parser/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app/ ./app/
+COPY apps/parser/app/ ./app/
 
 # Cloud Run injects PORT; uvicorn default is 8000
 EXPOSE 8000

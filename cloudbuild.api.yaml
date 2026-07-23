@@ -1,0 +1,16 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - '-f'
+      - 'apps/api/Dockerfile'
+      - '-t'
+      - 'europe-west1-docker.pkg.dev/banklens-prod/banklens/api'
+      - '.'
+
+images:
+  - 'europe-west1-docker.pkg.dev/banklens-prod/banklens/api'
+
+options:
+  machineType: 'E2_MEDIUM'
+  logging: CLOUD_LOGGING_ONLY

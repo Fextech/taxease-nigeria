@@ -1,0 +1,17 @@
+steps:
+  # Build parser image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - build
+      - '-f'
+      - 'apps/parser/Dockerfile'
+      - '-t'
+      - 'europe-west1-docker.pkg.dev/banklens-prod/banklens/parser'
+      - '.'
+
+images:
+  - 'europe-west1-docker.pkg.dev/banklens-prod/banklens/parser'
+
+options:
+  machineType: 'E2_MEDIUM'
+  logging: CLOUD_LOGGING_ONLY

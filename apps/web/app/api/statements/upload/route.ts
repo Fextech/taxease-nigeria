@@ -153,13 +153,9 @@ export async function POST(request: Request) {
 
             // Dispatch parse-statement Cloud Task
             try {
-                const { CloudTasksClient } = await import('@google-cloud/tasks');
-                const tasksClient = new CloudTasksClient();
-                const parent = tasksClient.queuePath(
-                    process.env.GCP_PROJECT_ID!,
-                    process.env.GCP_TASKS_LOCATION || 'europe-west1',
-                    process.env.GCP_TASKS_QUEUE    || 'banklens-jobs'
-                );
+                const { getTasksClient, getQueuePath } = await import('@/lib/tasks');
+                const tasksClient = getTasksClient();
+                const parent = getQueuePath(tasksClient);
                 const taskPayload = JSON.stringify({
                     statementId: statement.id,
                     pdfPassword: data.pdfPassword,

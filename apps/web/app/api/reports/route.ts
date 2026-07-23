@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { computeTax, type Relief } from '@banklens/shared';
-import { CloudTasksClient } from '@google-cloud/tasks';
+import { getTasksClient, getQueuePath } from '@/lib/tasks';
 
 const REPORT_CATEGORIES = [
     'BUSINESS',
@@ -206,12 +206,8 @@ export async function POST(request: Request) {
             }
 
             // Dispatch generate-report Cloud Task
-            const tasksClient = new CloudTasksClient();
-            const parent = tasksClient.queuePath(
-                process.env.GCP_PROJECT_ID!,
-                process.env.GCP_TASKS_LOCATION || 'europe-west1',
-                process.env.GCP_TASKS_QUEUE    || 'banklens-jobs'
-            );
+            const tasksClient = getTasksClient();
+            const parent = getQueuePath(tasksClient);
             const taskPayload = JSON.stringify({
                 workspaceId: data.workspaceId,
                 userId: session.user.id,

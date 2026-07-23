@@ -24,6 +24,14 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  output: "standalone",
+  // These packages use dynamic requires that Turbopack cannot bundle statically.
+  // Keep them as native Node.js requires at runtime.
+  serverExternalPackages: [
+    "@google-cloud/tasks",
+    "google-auth-library",
+    "google-gax",
+  ],
   async headers() {
     return [
       {
