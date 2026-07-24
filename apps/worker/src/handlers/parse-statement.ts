@@ -40,6 +40,30 @@ interface ParserResponse {
     notes?: string;
 }
 
+/**
+ * Cloud Run services require an ID token when they are not publicly
+ * invokable. Locally there is no metadata server and the parser runs without
+ * Cloud Run IAM, so authentication is only added when Cloud Run injects
+ * K_SERVICE.
+ */
+async function getParserAuthorizationHeader(): Promise<Record<string, string>> {
+    if (!process.env.K_SERVICE) {
+        return {};
+    }
+
+    const audience = PARSER_URL.replace(/\/+$/, '');
+    const metadataResponse = await fetch(
+        `http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity?audience=${encodeURIComponent(audience)}`,
+        { headers: { 'Metadata-Flavor': 'Google' } }
+    );
+
+    if (!metadataResponse.ok) {
+        throw new Error(`Unable to obtain parser ID token: ${metadataResponse.status}`);
+    }
+
+    return { Authorization: `Bearer ${await metadataResponse.text()}` };
+}
+
 // ─── Parser call ─────────────────────────────────────────
 
 async function sendToParser(
@@ -56,10 +80,12 @@ async function sendToParser(
     // This is transmitted only between the worker and parser for the lifetime
     // of this request. It is never persisted or written to logs.
     formData.append('ai_config', JSON.stringify(aiConfig));
+    const authHeaders = await getParserAuthorizationHeader();
 
     const response = await fetch(`${PARSER_URL}/parse`, {
         method: 'POST',
         body: formData,
+        headers: authHeaders,
     });
 
     if (!response.ok) {
