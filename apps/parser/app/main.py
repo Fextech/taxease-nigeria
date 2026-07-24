@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 from datetime import datetime
@@ -6,7 +7,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .models import ParseResult, ParsedTransaction, HealthResponse
-from .services.gemini import extract_transactions
+from .services.ai_providers import AiProviderError, extract_transactions
 from .services.extractor import extract_text_from_pdf, extract_text_from_csv
 
 logging.basicConfig(level=logging.INFO)
@@ -14,7 +15,7 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Banklens Parser Service",
-    description="PDF/CSV bank statement parser using Gemini AI for Nigerian bank statements",
+    description="PDF/CSV bank statement parser using an admin-configured AI provider for Nigerian bank statements",
     version="1.0.0",
 )
 
@@ -38,13 +39,13 @@ async def health_check():
 async def list_supported_banks():
     return {
         "banks": [
-            {"name": "GTBank", "parser": "gemini", "confidence": "high"},
-            {"name": "Access Bank", "parser": "gemini", "confidence": "high"},
-            {"name": "First Bank", "parser": "gemini", "confidence": "high"},
-            {"name": "Zenith Bank", "parser": "gemini", "confidence": "high"},
-            {"name": "UBA", "parser": "gemini", "confidence": "high"},
-            {"name": "Kuda", "parser": "gemini", "confidence": "high"},
-            {"name": "Other", "parser": "gemini", "confidence": "medium"},
+            {"name": "GTBank", "parser": "dynamic", "confidence": "high"},
+            {"name": "Access Bank", "parser": "dynamic", "confidence": "high"},
+            {"name": "First Bank", "parser": "dynamic", "confidence": "high"},
+            {"name": "Zenith Bank", "parser": "dynamic", "confidence": "high"},
+            {"name": "UBA", "parser": "dynamic", "confidence": "high"},
+            {"name": "Kuda", "parser": "dynamic", "confidence": "high"},
+            {"name": "Other", "parser": "dynamic", "confidence": "medium"},
         ]
     }
 
@@ -70,11 +71,12 @@ async def check_password(file: UploadFile = File(...), password: str = Form(""))
 @app.post("/parse", response_model=ParseResult)
 async def parse_statement(
     file: UploadFile = File(...),
-    password: str = Form("")
+    password: str = Form(""),
+    ai_config: str = Form("")
 ):
     """
     Parse a bank statement PDF, CSV, or Excel file and return
-    structured transaction data extracted using Gemini AI.
+    structured transaction data extracted using the active AI provider.
     """
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file provided")
@@ -113,8 +115,8 @@ async def parse_statement(
         raise HTTPException(status_code=422, detail=str(e))
 
     # Step 1.5: Validate the document looks like a bank statement
-    # This runs AFTER text extraction but BEFORE the Gemini API call to avoid
-    # wasting Gemini quota on non-financial documents.
+    # This runs after text extraction but before the AI provider call to avoid
+    # processing non-financial documents unnecessarily.
     BANK_STATEMENT_KEYWORDS = [
         # Generic financial terms
         "balance", "debit", "credit", "transaction", "account",
@@ -149,12 +151,24 @@ async def parse_statement(
             ),
         )
 
-    # Step 2: Send to Gemini for structured extraction
-    gemini_result = await extract_transactions(raw_text)
+    # Step 2: Send the text to the provider selected in Admin settings.
+    try:
+        runtime_config = json.loads(ai_config)
+    except json.JSONDecodeError as error:
+        raise HTTPException(
+            status_code=422,
+            detail="AI provider configuration is missing or invalid. Configure an active provider in Admin Settings.",
+        ) from error
 
-    # Step 3: Convert Gemini output to Pydantic models
+    try:
+        ai_result = await extract_transactions(raw_text, runtime_config)
+    except AiProviderError as error:
+        logger.error("AI extraction failed: %s", error)
+        raise HTTPException(status_code=502, detail=str(error)) from error
+
+    # Step 3: Convert AI provider output to Pydantic models
     transactions: list[ParsedTransaction] = []
-    for tx in gemini_result.get("transactions", []):
+    for tx in ai_result.get("transactions", []):
         try:
             # Parse date strings into datetime objects
             tx_date = tx.get("transaction_date", "")
@@ -190,10 +204,10 @@ async def parse_statement(
     preview = raw_text[:500] + ("..." if len(raw_text) > 500 else "")
 
     return ParseResult(
-        bank_name=gemini_result.get("bank_name", "Unknown"),
+        bank_name=ai_result.get("bank_name", "Unknown"),
         transactions=transactions,
-        overall_confidence=gemini_result.get("overall_confidence", 0.0),
+        overall_confidence=ai_result.get("overall_confidence", 0.0),
         raw_text_preview=preview,
         row_count=len(transactions),
-        notes=gemini_result.get("notes"),
+        notes=ai_result.get("notes"),
     )

@@ -446,6 +446,26 @@ model AppConfig {
   updatedAt   DateTime @updatedAt
 }
 
+enum AiProvider {
+  GEMINI
+  OPENAI
+  NVIDIA_NIM
+  OPENROUTER
+}
+
+model AiProviderConfig {
+  id              String     @id @default(cuid())
+  provider        AiProvider @unique
+  apiKeyEncrypted String
+  model           String
+  isActive        Boolean    @default(false)
+  updatedBy       String?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  @@index([isActive])
+}
+
 model SupportTicket {
   id          String           @id @default(cuid())
   userId      String

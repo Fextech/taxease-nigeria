@@ -1,6 +1,56 @@
 import { adminProcedure, superAdminProcedure, router } from '../../trpc/trpc.js';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
+import { encryptAiConfig } from '../../lib/ai-config-crypto.js';
+
+const AI_PROVIDER_CATALOGUE = [
+    {
+        id: 'GEMINI',
+        label: 'Google Gemini',
+        description: 'Native Gemini API with schema-constrained JSON output.',
+        defaultModel: 'gemini-2.5-flash',
+        recommendedModels: [
+            { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', note: 'Best default for reliable, high-volume statement extraction.' },
+            { id: 'gemini-2.5-pro', label: 'Gemini 2.5 Pro', note: 'Use for harder layouts and higher extraction accuracy.' },
+            { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite', note: 'Fast, cost-conscious option for structured document extraction.' },
+        ],
+    },
+    {
+        id: 'OPENAI',
+        label: 'OpenAI',
+        description: 'Frontier reasoning models with strict structured outputs.',
+        defaultModel: 'gpt-5.6-terra',
+        recommendedModels: [
+            { id: 'gpt-5.6-terra', label: 'GPT-5.6 Terra', note: 'Balanced default for quality, latency, and cost.' },
+            { id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', note: 'Highest-reasoning choice for especially difficult statements.' },
+            { id: 'gpt-5.6-luna', label: 'GPT-5.6 Luna', note: 'Cost-sensitive option for large processing volumes.' },
+        ],
+    },
+    {
+        id: 'NVIDIA_NIM',
+        label: 'NVIDIA NIM',
+        description: 'OpenAI-compatible access to NVIDIA-hosted and open-weight models.',
+        defaultModel: 'nvidia/llama-3.3-nemotron-super-49b-v1.5',
+        recommendedModels: [
+            { id: 'nvidia/llama-3.3-nemotron-super-49b-v1.5', label: 'Llama 3.3 Nemotron Super 49B', note: 'Strong open-weight reasoning model for complex extraction.' },
+            { id: 'openai/gpt-oss-120b', label: 'gpt-oss-120b', note: 'Open-weight, high-capacity option for quality-focused workloads.' },
+            { id: 'meta/llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct', note: 'Proven open-weight fallback for quality-focused extraction.' },
+        ],
+    },
+    {
+        id: 'OPENROUTER',
+        label: 'OpenRouter',
+        description: 'One OpenAI-compatible API for models from many providers.',
+        defaultModel: 'google/gemini-2.5-flash',
+        recommendedModels: [
+            { id: 'google/gemini-2.5-flash', label: 'Gemini 2.5 Flash', note: 'Fast structured extraction through a gateway provider.' },
+            { id: 'openai/gpt-oss-120b', label: 'gpt-oss-120b', note: 'Open-weight option with broad gateway availability.' },
+            { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct', note: 'Open-weight reasoning alternative for challenging statements.' },
+        ],
+    },
+] as const;
+
+const aiProviderInput = z.enum(['GEMINI', 'OPENAI', 'NVIDIA_NIM', 'OPENROUTER']);
 
 export const adminSettingsRouter = router({
     getAdminProfile: adminProcedure
@@ -112,22 +162,119 @@ export const adminSettingsRouter = router({
         }),
 
     getIntegrationStatuses: adminProcedure
-        .query(async () => {
-            // Mocked status checks
+        .query(async ({ ctx }) => {
+            const activeAiProvider = await ctx.prisma.aiProviderConfig.findFirst({
+                where: { isActive: true },
+                select: { provider: true, model: true, updatedAt: true },
+            });
             return {
-                paystack: { status: 'healthy', lastPing: new Date().toISOString() },
-                s3: { status: 'healthy', lastPing: new Date().toISOString() },
-                gemini: { status: 'degraded', lastPing: new Date().toISOString() },
-                resend: { status: 'healthy', lastPing: new Date().toISOString() },
+                paystack: { status: 'healthy', lastPing: new Date().toISOString(), detail: null },
+                s3: { status: 'healthy', lastPing: new Date().toISOString(), detail: null },
+                aiModel: {
+                    status: activeAiProvider ? 'healthy' : 'degraded',
+                    lastPing: activeAiProvider?.updatedAt.toISOString() ?? new Date().toISOString(),
+                    detail: activeAiProvider ? `${activeAiProvider.provider} · ${activeAiProvider.model}` : 'No active provider configured',
+                },
+                resend: { status: 'healthy', lastPing: new Date().toISOString(), detail: null },
             };
         }),
 
     pingIntegration: adminProcedure
         .input(z.object({ service: z.string() }))
-        .mutation(async ({ input }) => {
+        .mutation(async () => {
             // Mock a ping delay
             await new Promise(r => setTimeout(r, 600));
-            return { status: input.service === 'gemini' ? 'degraded' : 'healthy', latency: Math.floor(Math.random() * 200 + 50) };
+            return { status: 'healthy', latency: Math.floor(Math.random() * 200 + 50) };
+        }),
+
+    // ─── AI Model Routing ────────────────────────────────────
+    getAiProviderConfigs: adminProcedure
+        .query(async ({ ctx }) => {
+            const configured = await ctx.prisma.aiProviderConfig.findMany();
+            const byProvider = new Map(configured.map((config) => [config.provider, config]));
+
+            return {
+                providers: AI_PROVIDER_CATALOGUE.map((provider) => {
+                    const config = byProvider.get(provider.id);
+                    return {
+                        ...provider,
+                        model: config?.model ?? provider.defaultModel,
+                        isActive: config?.isActive ?? false,
+                        apiKeyConfigured: Boolean(config?.apiKeyEncrypted),
+                        updatedAt: config?.updatedAt ?? null,
+                    };
+                }),
+            };
+        }),
+
+    saveAiProviderConfig: superAdminProcedure
+        .input(z.object({
+            provider: aiProviderInput,
+            model: z.string().trim().min(1).max(160),
+            apiKey: z.string().trim().min(10).max(500).optional(),
+            isActive: z.boolean(),
+        }))
+        .mutation(async ({ ctx, input }) => {
+            const existing = await ctx.prisma.aiProviderConfig.findUnique({
+                where: { provider: input.provider },
+            });
+
+            if (!existing && !input.apiKey) {
+                throw new Error('Enter an API key before saving a new provider.');
+            }
+
+            const apiKeyEncrypted = input.apiKey
+                ? encryptAiConfig(input.apiKey)
+                : existing!.apiKeyEncrypted;
+
+            const saved = await ctx.prisma.$transaction(async (tx) => {
+                if (input.isActive) {
+                    await tx.aiProviderConfig.updateMany({
+                        where: { isActive: true },
+                        data: { isActive: false },
+                    });
+                }
+
+                return tx.aiProviderConfig.upsert({
+                    where: { provider: input.provider },
+                    create: {
+                        provider: input.provider,
+                        model: input.model,
+                        apiKeyEncrypted,
+                        isActive: input.isActive,
+                        updatedBy: ctx.admin.id,
+                    },
+                    update: {
+                        model: input.model,
+                        apiKeyEncrypted,
+                        isActive: input.isActive,
+                        updatedBy: ctx.admin.id,
+                    },
+                });
+            });
+
+            await ctx.prisma.adminAuditLog.create({
+                data: {
+                    adminId: ctx.admin.id,
+                    adminEmail: ctx.admin.email,
+                    adminRole: ctx.admin.role,
+                    actionCode: 'AI_PROVIDER_CONFIG_UPDATED',
+                    targetEntity: `AiProviderConfig:${input.provider}`,
+                    metadata: {
+                        provider: input.provider,
+                        model: input.model,
+                        isActive: input.isActive,
+                        apiKeyUpdated: Boolean(input.apiKey),
+                    },
+                },
+            });
+
+            return {
+                success: true,
+                provider: saved.provider,
+                model: saved.model,
+                isActive: saved.isActive,
+            };
         }),
 
     // ─── Maintenance Mode ─────────────────────────────────────

@@ -2,6 +2,7 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import pino from 'pino';
 import { PrismaClient } from '@prisma/client';
 import { downloadFromS3 } from '../lib/s3.js';
+import { getActiveAiProviderConfig, type ParserAiConfig } from '../lib/ai-provider-config.js';
 
 const logger = pino({
     transport: {
@@ -45,12 +46,16 @@ async function sendToParser(
     fileBuffer: Buffer,
     filename: string,
     mimeType: string,
-    password?: string
+    password: string | undefined,
+    aiConfig: ParserAiConfig
 ): Promise<ParserResponse> {
     const formData = new FormData();
     const blob = new Blob([fileBuffer], { type: mimeType });
     formData.append('file', blob, filename);
     if (password) formData.append('password', password);
+    // This is transmitted only between the worker and parser for the lifetime
+    // of this request. It is never persisted or written to logs.
+    formData.append('ai_config', JSON.stringify(aiConfig));
 
     const response = await fetch(`${PARSER_URL}/parse`, {
         method: 'POST',
@@ -150,14 +155,31 @@ export async function parseStatementHandler(
             return;
         }
 
-        // ── Call parser service ────────────────────────────
+        // ── Resolve the active AI provider and call parser ──
+        let aiConfig: ParserAiConfig;
+        try {
+            aiConfig = await getActiveAiProviderConfig(prisma);
+        } catch (configError) {
+            logger.error({ statementId, configError }, 'AI provider configuration is unavailable');
+            await prisma.statement.update({
+                where: { id: statementId },
+                data: {
+                    parseStatus: 'ERROR',
+                    errorMessage: 'AI provider is not configured. Ask an administrator to configure Admin Settings > AI Model.',
+                },
+            });
+            reply.code(422).send({ error: 'AI provider configuration is unavailable' });
+            return;
+        }
+
         let parseResult: ParserResponse;
         try {
             parseResult = await sendToParser(
                 fileBuffer,
                 statement.originalFilename,
                 statement.mimeType,
-                pdfPassword
+                pdfPassword,
+                aiConfig
             );
             logger.info(
                 { statementId, rows: parseResult.row_count, bank: parseResult.bank_name },

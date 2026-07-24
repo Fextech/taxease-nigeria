@@ -34,6 +34,7 @@
                 "GOOGLE_APPLICATION_CREDENTIALS_JSON",
                 "WORKER_URL",
                 "WORKER_SECRET",
+                "AI_CONFIG_ENCRYPTION_KEY",
                 "PARSER_URL",
                 "AWS_REGION",
                 "AWS_ACCESS_KEY_ID",
