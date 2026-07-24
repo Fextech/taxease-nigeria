@@ -43,6 +43,15 @@ export default function SettingsPage() {
 
   // AI Model Routing
   const { data: aiModelSettings } = trpc.admin.settings.getAiProviderConfigs.useQuery();
+  const {
+    data: providerModelLists,
+    refetch: refetchProviderModels,
+    isFetching: isFetchingProviderModels,
+  } = trpc.admin.settings.getAiProviderModels.useQuery(undefined, {
+    enabled: activeTab === "ai-model",
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
   const [aiModels, setAiModels] = useState<Record<string, string>>({});
   const [aiApiKeys, setAiApiKeys] = useState<Record<string, string>>({});
   const [selectedAiProvider, setSelectedAiProvider] = useState<string>("");
@@ -51,9 +60,24 @@ export default function SettingsPage() {
       onSuccess: (_, variables) => {
           setAiApiKeys((current) => ({ ...current, [variables.provider]: "" }));
           utils.admin.settings.getAiProviderConfigs.invalidate();
+          utils.admin.settings.getAiProviderModels.invalidate();
           toast.success("AI provider settings saved");
       },
       onError: (err) => toast.error(err.message),
+  });
+  const removeAiProvider = trpc.admin.settings.removeAiProviderConfig.useMutation({
+    onSuccess: (_, variables) => {
+      setAiApiKeys((current) => ({ ...current, [variables.provider]: "" }));
+      setAiModels((current) => {
+        const next = { ...current };
+        delete next[variables.provider];
+        return next;
+      });
+      utils.admin.settings.getAiProviderConfigs.invalidate();
+      utils.admin.settings.getAiProviderModels.invalidate();
+      toast.success("Saved provider key removed");
+    },
+    onError: (err) => toast.error(err.message),
   });
 
   useEffect(() => {
@@ -112,6 +136,15 @@ export default function SettingsPage() {
     } catch (e) {
         alert("Ping failed");
     }
+  };
+
+  const refreshProviderModels = async () => {
+    const result = await refetchProviderModels();
+    if (result.error) {
+      toast.error("Could not refresh provider model lists");
+      return;
+    }
+    toast.success("Provider model lists refreshed");
   };
 
   // Profile Form
@@ -321,14 +354,26 @@ export default function SettingsPage() {
                     Store provider keys securely, choose the model for each provider, and select one active model for statement extraction.
                   </p>
                 </div>
-                <button
-                  className="admin-btn admin-btn--secondary admin-btn--sm"
-                  onClick={() => setShowRecommendations(true)}
-                  style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
-                >
-                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>info</span>
-                  Recommended models
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <button
+                    className="admin-btn admin-btn--secondary admin-btn--sm"
+                    onClick={() => void refreshProviderModels()}
+                    disabled={isFetchingProviderModels}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+                    title="Reload the available models from each saved provider"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{isFetchingProviderModels ? "progress_activity" : "refresh"}</span>
+                    {isFetchingProviderModels ? "Refreshing…" : "Refresh models"}
+                  </button>
+                  <button
+                    className="admin-btn admin-btn--secondary admin-btn--sm"
+                    onClick={() => setShowRecommendations(true)}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>info</span>
+                    Recommended models
+                  </button>
+                </div>
               </div>
 
               <div style={{ padding: "14px 16px", borderRadius: 10, border: "1px solid rgba(0, 240, 255, 0.16)", background: "rgba(0, 240, 255, 0.05)", display: "flex", gap: 10, alignItems: "flex-start" }}>
@@ -341,6 +386,12 @@ export default function SettingsPage() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
                 {aiModelSettings?.providers.map((provider) => {
                   const isSelected = selectedAiProvider === provider.id;
+                  const liveModelList = providerModelLists?.providers.find((item) => item.provider === provider.id);
+                  const modelOptions = Array.from(new Map([
+                    ...(liveModelList?.models ?? []),
+                    { id: provider.model, label: provider.model },
+                    ...((liveModelList?.models.length ?? 0) > 0 ? [] : provider.recommendedModels),
+                  ].map((model) => [model.id, model])).values());
                   return (
                     <div key={provider.id} style={{ padding: 20, borderRadius: 12, border: isSelected ? "1px solid var(--admin-cyan)" : "1px solid rgba(255,255,255,0.08)", background: isSelected ? "rgba(0, 240, 255, 0.045)" : "rgba(255,255,255,0.02)", display: "flex", flexDirection: "column", gap: 16 }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
@@ -360,17 +411,33 @@ export default function SettingsPage() {
                       </label>
 
                       <div>
-                        <label style={{ display: "block", fontSize: 11, color: "var(--admin-text-muted)", marginBottom: 7, textTransform: "uppercase", letterSpacing: 0.7 }}>Model</label>
-                        <input
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 7 }}>
+                          <label style={{ display: "block", fontSize: 11, color: "var(--admin-text-muted)", textTransform: "uppercase", letterSpacing: 0.7 }}>Model</label>
+                          <button
+                            type="button"
+                            onClick={() => void refreshProviderModels()}
+                            disabled={isFetchingProviderModels || !provider.apiKeyConfigured}
+                            title={provider.apiKeyConfigured ? `Refresh ${provider.label} models` : "Save an API key before refreshing models"}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: 0, border: "none", background: "transparent", color: "var(--admin-cyan)", cursor: provider.apiKeyConfigured ? "pointer" : "not-allowed", fontSize: 11, opacity: provider.apiKeyConfigured ? 1 : 0.5 }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{isFetchingProviderModels ? "progress_activity" : "refresh"}</span>
+                            Refresh
+                          </button>
+                        </div>
+                        <select
                           className="admin-input"
-                          list={`ai-models-${provider.id}`}
                           value={aiModels[provider.id] ?? provider.model}
                           onChange={(event) => setAiModels((current) => ({ ...current, [provider.id]: event.target.value }))}
-                          placeholder={provider.defaultModel}
-                        />
-                        <datalist id={`ai-models-${provider.id}`}>
-                          {provider.recommendedModels.map((model) => <option key={model.id} value={model.id}>{model.label}</option>)}
-                        </datalist>
+                        >
+                          {modelOptions.map((model) => (
+                            <option key={model.id} value={model.id}>{model.label === model.id ? model.id : `${model.label} — ${model.id}`}</option>
+                          ))}
+                        </select>
+                        {liveModelList?.error ? (
+                          <p style={{ color: "var(--admin-warning)", fontSize: 11, margin: "7px 0 0", lineHeight: 1.4 }}>{liveModelList.error}</p>
+                        ) : liveModelList ? (
+                          <p style={{ color: "var(--admin-text-muted)", fontSize: 11, margin: "7px 0 0" }}>{liveModelList.models.length} live model{liveModelList.models.length === 1 ? "" : "s"} available</p>
+                        ) : null}
                       </div>
 
                       <div>
@@ -385,6 +452,21 @@ export default function SettingsPage() {
                           onChange={(event) => setAiApiKeys((current) => ({ ...current, [provider.id]: event.target.value }))}
                           placeholder={provider.apiKeyConfigured ? "Leave blank to keep the stored key" : "Paste provider API key"}
                         />
+                        {provider.apiKeyConfigured && (
+                          <button
+                            type="button"
+                            disabled={removeAiProvider.isPending}
+                            onClick={() => {
+                              if (window.confirm(`Remove the saved ${provider.label} API key? You can add it again later.`)) {
+                                removeAiProvider.mutate({ provider: provider.id });
+                              }
+                            }}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 8, padding: 0, border: "none", background: "transparent", color: "var(--admin-error)", cursor: "pointer", fontSize: 11 }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
+                            Remove saved key
+                          </button>
+                        )}
                       </div>
 
                       <button

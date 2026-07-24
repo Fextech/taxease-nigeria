@@ -1,7 +1,7 @@
 import { adminProcedure, superAdminProcedure, router } from '../../trpc/trpc.js';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
-import { encryptAiConfig } from '../../lib/ai-config-crypto.js';
+import { decryptAiConfig, encryptAiConfig } from '../../lib/ai-config-crypto.js';
 
 const AI_PROVIDER_CATALOGUE = [
     {
@@ -51,6 +51,73 @@ const AI_PROVIDER_CATALOGUE = [
 ] as const;
 
 const aiProviderInput = z.enum(['GEMINI', 'OPENAI', 'NVIDIA_NIM', 'OPENROUTER']);
+
+type AiProviderId = z.infer<typeof aiProviderInput>;
+
+type ProviderModel = {
+    id: string;
+    label: string;
+};
+
+type ProviderModelList = {
+    provider: AiProviderId;
+    models: ProviderModel[];
+    fetchedAt: string;
+    error: string | null;
+};
+
+function uniqueModels(models: ProviderModel[]): ProviderModel[] {
+    return [...new Map(models.map((model) => [model.id, model])).values()]
+        .sort((left, right) => left.label.localeCompare(right.label));
+}
+
+async function fetchProviderModels(provider: AiProviderId, apiKey: string): Promise<ProviderModel[]> {
+    const request = async (url: string, headers: Record<string, string>) => {
+        const response = await fetch(url, {
+            headers,
+            signal: AbortSignal.timeout(15_000),
+        });
+
+        if (!response.ok) {
+            throw new Error(`The provider returned HTTP ${response.status}.`);
+        }
+
+        return response.json() as Promise<unknown>;
+    };
+
+    if (provider === 'GEMINI') {
+        const payload = await request('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', {
+            'x-goog-api-key': apiKey,
+        }) as { models?: Array<{ name?: string; displayName?: string; supportedGenerationMethods?: string[] }> };
+
+        return uniqueModels((payload.models ?? [])
+            .filter((model) => model.name && model.supportedGenerationMethods?.includes('generateContent'))
+            .map((model) => ({
+                id: model.name!.replace(/^models\//, ''),
+                label: model.displayName || model.name!.replace(/^models\//, ''),
+            })));
+    }
+
+    const endpoint = provider === 'OPENAI'
+        ? 'https://api.openai.com/v1/models'
+        : provider === 'NVIDIA_NIM'
+            ? 'https://integrate.api.nvidia.com/v1/models'
+            : 'https://openrouter.ai/api/v1/models?output_modalities=text';
+    const payload = await request(endpoint, { Authorization: `Bearer ${apiKey}` }) as {
+        data?: Array<{ id?: string; name?: string; supported_parameters?: string[] }>;
+    };
+
+    const models = (payload.data ?? [])
+        .filter((model) => Boolean(model.id))
+        .filter((model) => {
+            if (provider !== 'OPENROUTER') return true;
+            return model.supported_parameters?.includes('response_format')
+                || model.supported_parameters?.includes('structured_outputs');
+        })
+        .map((model) => ({ id: model.id!, label: model.name || model.id! }));
+
+    return uniqueModels(models);
+}
 
 export const adminSettingsRouter = router({
     getAdminProfile: adminProcedure
@@ -207,6 +274,47 @@ export const adminSettingsRouter = router({
             };
         }),
 
+    getAiProviderModels: adminProcedure
+        .query(async ({ ctx }) => {
+            const configured = await ctx.prisma.aiProviderConfig.findMany({
+                select: { provider: true, apiKeyEncrypted: true },
+            });
+            const byProvider = new Map(configured.map((config) => [config.provider as AiProviderId, config]));
+
+            const providers = await Promise.all(AI_PROVIDER_CATALOGUE.map(async (provider): Promise<ProviderModelList> => {
+                const config = byProvider.get(provider.id);
+                const fetchedAt = new Date().toISOString();
+
+                if (!config) {
+                    return {
+                        provider: provider.id,
+                        models: [],
+                        fetchedAt,
+                        error: 'Save an API key to load this provider’s available models.',
+                    };
+                }
+
+                try {
+                    return {
+                        provider: provider.id,
+                        models: await fetchProviderModels(provider.id, decryptAiConfig(config.apiKeyEncrypted)),
+                        fetchedAt,
+                        error: null,
+                    };
+                } catch (error) {
+                    console.error(`Unable to load ${provider.label} models`, error);
+                    return {
+                        provider: provider.id,
+                        models: [],
+                        fetchedAt,
+                        error: 'Unable to load models. Check the saved API key and try again.',
+                    };
+                }
+            }));
+
+            return { providers };
+        }),
+
     saveAiProviderConfig: superAdminProcedure
         .input(z.object({
             provider: aiProviderInput,
@@ -275,6 +383,35 @@ export const adminSettingsRouter = router({
                 model: saved.model,
                 isActive: saved.isActive,
             };
+        }),
+
+    removeAiProviderConfig: superAdminProcedure
+        .input(z.object({ provider: aiProviderInput }))
+        .mutation(async ({ ctx, input }) => {
+            const existing = await ctx.prisma.aiProviderConfig.findUnique({
+                where: { provider: input.provider },
+            });
+
+            if (!existing) return { success: true };
+            if (existing.isActive) {
+                throw new Error('Choose and save another active provider before removing this API key.');
+            }
+
+            await ctx.prisma.$transaction(async (tx) => {
+                await tx.aiProviderConfig.delete({ where: { provider: input.provider } });
+                await tx.adminAuditLog.create({
+                    data: {
+                        adminId: ctx.admin.id,
+                        adminEmail: ctx.admin.email,
+                        adminRole: ctx.admin.role,
+                        actionCode: 'AI_PROVIDER_CONFIG_REMOVED',
+                        targetEntity: `AiProviderConfig:${input.provider}`,
+                        metadata: { provider: input.provider },
+                    },
+                });
+            });
+
+            return { success: true };
         }),
 
     // ─── Maintenance Mode ─────────────────────────────────────
