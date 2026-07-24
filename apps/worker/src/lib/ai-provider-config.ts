@@ -4,7 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 const ALGORITHM = 'aes-256-gcm';
 
 export interface ParserAiConfig {
-    provider: 'gemini' | 'openai' | 'nvidia_nim' | 'openrouter';
+    provider: 'gemini' | 'openai' | 'nvidia_nim' | 'openrouter' | 'groq' | 'anthropic';
     model: string;
     apiKey: string;
 }
@@ -46,6 +46,8 @@ export async function getActiveAiProviderConfig(prisma: PrismaClient): Promise<P
         OPENAI: 'openai',
         NVIDIA_NIM: 'nvidia_nim',
         OPENROUTER: 'openrouter',
+        GROQ: 'groq',
+        ANTHROPIC: 'anthropic',
     } as const;
 
     return {

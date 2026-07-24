@@ -451,6 +451,8 @@ enum AiProvider {
   OPENAI
   NVIDIA_NIM
   OPENROUTER
+  GROQ
+  ANTHROPIC
 }
 
 model AiProviderConfig {

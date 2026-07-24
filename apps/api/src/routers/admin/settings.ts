@@ -48,9 +48,30 @@ const AI_PROVIDER_CATALOGUE = [
             { id: 'meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B Instruct', note: 'Open-weight reasoning alternative for challenging statements.' },
         ],
     },
+    {
+        id: 'GROQ',
+        label: 'Groq',
+        description: 'Fast OpenAI-compatible API with strict JSON Schema output for supported GPT-OSS models.',
+        defaultModel: 'openai/gpt-oss-20b',
+        recommendedModels: [
+            { id: 'openai/gpt-oss-20b', label: 'gpt-oss-20b', note: 'Open-weight, low-latency model with Groq strict JSON Schema support.' },
+            { id: 'openai/gpt-oss-120b', label: 'gpt-oss-120b', note: 'Higher-capacity open-weight option with Groq strict JSON Schema support.' },
+        ],
+    },
+    {
+        id: 'ANTHROPIC',
+        label: 'Anthropic Claude',
+        description: 'Native Claude Messages API with constrained JSON Schema output.',
+        defaultModel: 'claude-haiku-4-5',
+        recommendedModels: [
+            { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5', note: 'Fast, cost-conscious structured statement extraction.' },
+            { id: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5', note: 'Balanced quality option for complex statements.' },
+            { id: 'claude-opus-4-5', label: 'Claude Opus 4.5', note: 'Highest-capacity option for difficult layouts.' },
+        ],
+    },
 ] as const;
 
-const aiProviderInput = z.enum(['GEMINI', 'OPENAI', 'NVIDIA_NIM', 'OPENROUTER']);
+const aiProviderInput = z.enum(['GEMINI', 'OPENAI', 'NVIDIA_NIM', 'OPENROUTER', 'GROQ', 'ANTHROPIC']);
 
 type AiProviderId = z.infer<typeof aiProviderInput>;
 
@@ -65,6 +86,11 @@ type ProviderModelList = {
     fetchedAt: string;
     error: string | null;
 };
+
+const GROQ_STRICT_STRUCTURED_OUTPUT_MODELS = new Set([
+    'openai/gpt-oss-20b',
+    'openai/gpt-oss-120b',
+]);
 
 function uniqueModels(models: ProviderModel[]): ProviderModel[] {
     return [...new Map(models.map((model) => [model.id, model])).values()]
@@ -98,10 +124,29 @@ async function fetchProviderModels(provider: AiProviderId, apiKey: string): Prom
             })));
     }
 
+    if (provider === 'ANTHROPIC') {
+        const payload = await request('https://api.anthropic.com/v1/models', {
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+        }) as {
+            data?: Array<{
+                id?: string;
+                display_name?: string;
+                capabilities?: { structured_outputs?: { supported?: boolean } };
+            }>;
+        };
+
+        return uniqueModels((payload.data ?? [])
+            .filter((model) => model.id && model.capabilities?.structured_outputs?.supported)
+            .map((model) => ({ id: model.id!, label: model.display_name || model.id! })));
+    }
+
     const endpoint = provider === 'OPENAI'
         ? 'https://api.openai.com/v1/models'
         : provider === 'NVIDIA_NIM'
             ? 'https://integrate.api.nvidia.com/v1/models'
+            : provider === 'GROQ'
+                ? 'https://api.groq.com/openai/v1/models'
             : 'https://openrouter.ai/api/v1/models?output_modalities=text';
     const payload = await request(endpoint, { Authorization: `Bearer ${apiKey}` }) as {
         data?: Array<{ id?: string; name?: string; supported_parameters?: string[] }>;
@@ -110,9 +155,11 @@ async function fetchProviderModels(provider: AiProviderId, apiKey: string): Prom
     const models = (payload.data ?? [])
         .filter((model) => Boolean(model.id))
         .filter((model) => {
-            if (provider !== 'OPENROUTER') return true;
-            return model.supported_parameters?.includes('response_format')
-                || model.supported_parameters?.includes('structured_outputs');
+            if (provider === 'OPENROUTER') {
+                return model.supported_parameters?.includes('response_format')
+                    || model.supported_parameters?.includes('structured_outputs');
+            }
+            return provider !== 'GROQ' || GROQ_STRICT_STRUCTURED_OUTPUT_MODELS.has(model.id!);
         })
         .map((model) => ({ id: model.id!, label: model.name || model.id! }));
 

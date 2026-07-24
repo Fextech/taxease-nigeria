@@ -10,6 +10,8 @@ const AI_PROVIDER_ICONS: Record<string, string> = {
   OPENAI: "neurology",
   NVIDIA_NIM: "memory",
   OPENROUTER: "account_tree",
+  GROQ: "speed",
+  ANTHROPIC: "psychology",
 };
 
 export default function SettingsPage() {

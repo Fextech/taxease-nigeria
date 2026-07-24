@@ -46,13 +46,62 @@ class StatementSchema(BaseModel):
 
 
 class RuntimeAiConfig(BaseModel):
-    provider: Literal["gemini", "openai", "nvidia_nim", "openrouter"]
+    provider: Literal["gemini", "openai", "nvidia_nim", "openrouter", "groq", "anthropic"]
     model: str = Field(min_length=1, max_length=160)
     apiKey: str = Field(min_length=10, max_length=500)
 
 
 class AiProviderError(RuntimeError):
     """A provider failed without exposing credential material in the message."""
+
+
+def _strict_statement_schema() -> dict:
+    """JSON Schema accepted by Groq and Anthropic constrained decoding.
+
+    Those providers require every object to be closed and every property to be
+    required in strict mode. Fields that are optional in Banklens are therefore
+    represented as nullable, then remain optional to callers after Pydantic
+    validation.
+    """
+    nullable_string = {"anyOf": [{"type": "string"}, {"type": "null"}]}
+    nullable_integer = {"anyOf": [{"type": "integer"}, {"type": "null"}]}
+    transaction = {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "transaction_date": {"type": "string"},
+            "value_date": nullable_string,
+            "description": {"type": "string"},
+            "credit_amount": {"type": "integer"},
+            "debit_amount": {"type": "integer"},
+            "balance": nullable_integer,
+            "reference": nullable_string,
+            "channel": nullable_string,
+            "confidence": {"type": "number"},
+        },
+        "required": [
+            "transaction_date",
+            "value_date",
+            "description",
+            "credit_amount",
+            "debit_amount",
+            "balance",
+            "reference",
+            "channel",
+            "confidence",
+        ],
+    }
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "bank_name": {"type": "string"},
+            "transactions": {"type": "array", "items": transaction},
+            "overall_confidence": {"type": "number"},
+            "notes": nullable_string,
+        },
+        "required": ["bank_name", "transactions", "overall_confidence", "notes"],
+    }
 
 
 def _strip_fences(value: str) -> str:
@@ -96,6 +145,7 @@ def _openai_compatible_endpoint(provider: str) -> str:
         "openai": "https://api.openai.com/v1/chat/completions",
         "nvidia_nim": "https://integrate.api.nvidia.com/v1/chat/completions",
         "openrouter": "https://openrouter.ai/api/v1/chat/completions",
+        "groq": "https://api.groq.com/openai/v1/chat/completions",
     }
     return endpoints[provider]
 
@@ -115,6 +165,15 @@ async def _extract_with_openai_compatible(raw_text: str, config: RuntimeAiConfig
     # even where strict JSON-schema decoding is not available.
     if config.provider == "nvidia_nim":
         response_format = {"type": "json_object"}
+    elif config.provider == "groq":
+        response_format = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "bank_statement_extraction",
+                "strict": True,
+                "schema": _strict_statement_schema(),
+            },
+        }
 
     headers = {
         "Authorization": f"Bearer {config.apiKey}",
@@ -132,6 +191,12 @@ async def _extract_with_openai_compatible(raw_text: str, config: RuntimeAiConfig
         ],
         "response_format": response_format,
     }
+    if config.provider == "groq":
+        # Groq's strict Structured Outputs are supported by the GPT-OSS models
+        # exposed in the Admin catalogue. This budget accommodates a complete
+        # monthly statement instead of allowing the JSON array to truncate.
+        payload["temperature"] = 0.1
+        payload["max_completion_tokens"] = 16384
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
@@ -156,6 +221,58 @@ async def _extract_with_openai_compatible(raw_text: str, config: RuntimeAiConfig
         raise AiProviderError(f"{config.provider} extraction request failed.") from error
 
 
+async def _extract_with_anthropic(raw_text: str, config: RuntimeAiConfig) -> dict:
+    payload = {
+        "model": config.model,
+        "max_tokens": 16384,
+        "temperature": 0.1,
+        "system": SYSTEM_PROMPT,
+        "messages": [{"role": "user", "content": raw_text}],
+        "output_config": {
+            "format": {
+                "type": "json_schema",
+                "schema": _strict_statement_schema(),
+            },
+        },
+    }
+    headers = {
+        "x-api-key": config.apiKey,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=payload,
+            )
+        if response.is_error:
+            logger.warning("anthropic returned HTTP %s", response.status_code)
+            raise AiProviderError(f"anthropic extraction request failed ({response.status_code}).")
+
+        payload_response = response.json()
+        content_blocks = payload_response["content"]
+        content = next(
+            (
+                block.get("text")
+                for block in content_blocks
+                if isinstance(block, dict) and block.get("type") == "text"
+            ),
+            None,
+        )
+        if not isinstance(content, str):
+            raise AiProviderError("Anthropic returned an empty statement extraction payload.")
+        return _validate_result(content)
+    except AiProviderError:
+        raise
+    except (KeyError, IndexError, TypeError, ValueError) as error:
+        raise AiProviderError("Anthropic returned an unexpected statement extraction payload.") from error
+    except httpx.HTTPError as error:
+        raise AiProviderError("Anthropic extraction request failed.") from error
+
+
 async def extract_transactions(raw_text: str, runtime_config: dict) -> dict:
     """Extract statement rows using the active provider chosen in Admin settings."""
     if not raw_text.strip():
@@ -173,6 +290,8 @@ async def extract_transactions(raw_text: str, runtime_config: dict) -> dict:
 
     if config.provider == "gemini":
         result = await _extract_with_gemini(raw_text, config)
+    elif config.provider == "anthropic":
+        result = await _extract_with_anthropic(raw_text, config)
     else:
         result = await _extract_with_openai_compatible(raw_text, config)
 
