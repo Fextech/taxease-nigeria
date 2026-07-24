@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { computeTax, type Relief } from '@banklens/shared';
-import { getTasksClient, getQueuePath } from '@/lib/tasks';
+import { enqueueWorkerJob } from '@/lib/tasks';
 
 const REPORT_CATEGORIES = [
     'BUSINESS',
@@ -185,29 +185,13 @@ export async function POST(request: Request) {
             }
 
             // Dispatch generate-report Cloud Task
-            const tasksClient = getTasksClient();
-            const parent = getQueuePath(tasksClient);
-            const taskPayload = JSON.stringify({
+            await enqueueWorkerJob('/jobs/generate-report', {
                 workspaceId: data.workspaceId,
                 userId: session.user.id,
                 userEmail: session.user.email,
                 taxYear: workspace.taxYear,
                 additionalDeductions: data.additionalDeductions,
                 annualRentPaid: data.annualRentPaid,
-            });
-            await tasksClient.createTask({
-                parent,
-                task: {
-                    httpRequest: {
-                        httpMethod: 'POST' as const,
-                        url: `${process.env.WORKER_URL}/jobs/generate-report`,
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Worker-Secret': process.env.WORKER_SECRET!,
-                        },
-                        body: Buffer.from(taskPayload).toString('base64'),
-                    },
-                },
             });
 
             // Only record consumption after Cloud Tasks has accepted the job.

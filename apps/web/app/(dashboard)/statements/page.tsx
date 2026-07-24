@@ -196,6 +196,28 @@ export default function StatementsPage() {
     }
   }
 
+  async function handleRetry(statementId: string) {
+    try {
+      const res = await fetch("/api/statements/upload", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "retry", statementId }),
+      });
+      const payload = await res.json();
+      if (!res.ok) throw new Error(payload.error || "Unable to retry statement processing");
+
+      if (activeWorkspaceId) await loadStatements(activeWorkspaceId);
+      setToast({ message: "Statement queued for processing.", type: "success" });
+      setTimeout(() => setToast(null), 5000);
+    } catch (err) {
+      setToast({
+        message: err instanceof Error ? err.message : "Unable to retry statement processing",
+        type: "error",
+      });
+      setTimeout(() => setToast(null), 6000);
+    }
+  }
+
   const handleFileSelect = useCallback(
     async (file: File, skipPasswordCheck = false, password = "") => {
       // Validate file type
@@ -634,6 +656,15 @@ export default function StatementsPage() {
                         </>
                       )}
                     </div>
+                  )}
+                  {stmt.parseStatus === "ERROR" && (
+                    <button
+                      className="modal-btn-confirm"
+                      onClick={() => handleRetry(stmt.id)}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>refresh</span>
+                      Retry processing
+                    </button>
                   )}
                   <button
                     className="delete-btn"

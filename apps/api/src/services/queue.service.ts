@@ -9,6 +9,7 @@ const GCP_LOCATION = process.env.GCP_TASKS_LOCATION || 'europe-west1';
 const GCP_QUEUE    = process.env.GCP_TASKS_QUEUE    || 'banklens-jobs';
 const WORKER_URL   = process.env.WORKER_URL!;
 const WORKER_SECRET = process.env.WORKER_SECRET!;
+const TASKS_INVOKER_SERVICE_ACCOUNT = process.env.CLOUD_TASKS_INVOKER_SERVICE_ACCOUNT;
 
 function getQueuePath(): string {
     return tasksClient.queuePath(GCP_PROJECT, GCP_LOCATION, GCP_QUEUE);
@@ -37,6 +38,14 @@ export async function enqueueParseJob(
                     'X-Worker-Secret': WORKER_SECRET,
                 },
                 body: Buffer.from(payload).toString('base64'),
+                ...(TASKS_INVOKER_SERVICE_ACCOUNT
+                    ? {
+                        oidcToken: {
+                            serviceAccountEmail: TASKS_INVOKER_SERVICE_ACCOUNT,
+                            audience: WORKER_URL,
+                        },
+                    }
+                    : {}),
             },
         },
     });
@@ -65,6 +74,14 @@ export async function enqueueReportJob(payload: {
                     'X-Worker-Secret': WORKER_SECRET,
                 },
                 body: Buffer.from(JSON.stringify(payload)).toString('base64'),
+                ...(TASKS_INVOKER_SERVICE_ACCOUNT
+                    ? {
+                        oidcToken: {
+                            serviceAccountEmail: TASKS_INVOKER_SERVICE_ACCOUNT,
+                            audience: WORKER_URL,
+                        },
+                    }
+                    : {}),
             },
         },
     });

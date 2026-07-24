@@ -3,6 +3,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { S3Client, PutObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { enqueueWorkerJob, TaskConfigurationError } from '@/lib/tasks';
 
 const BUCKET = process.env.AWS_S3_BUCKET_NAME || 'banklens-statements-dev';
 const URL_EXPIRY = Number(process.env.S3_PRESIGNED_URL_EXPIRY) || 900;
@@ -16,6 +17,17 @@ const s3 = new S3Client({
     requestChecksumCalculation: "WHEN_REQUIRED",
     responseChecksumValidation: "WHEN_REQUIRED",
 });
+
+function dispatchErrorMessage(error: unknown): string {
+    if (error instanceof TaskConfigurationError) {
+        return `Processing queue configuration error: ${error.message}`;
+    }
+    return 'Unable to queue processing. Please retry from the statement list.';
+}
+
+async function enqueueStatementParse(statementId: string, pdfPassword?: string): Promise<void> {
+    await enqueueWorkerJob('/jobs/parse-statement', { statementId, pdfPassword });
+}
 
 /**
  * POST /api/statements/upload
@@ -144,34 +156,14 @@ export async function POST(request: Request) {
 
             // Dispatch parse-statement Cloud Task
             try {
-                const { getTasksClient, getQueuePath } = await import('@/lib/tasks');
-                const tasksClient = getTasksClient();
-                const parent = getQueuePath(tasksClient);
-                const taskPayload = JSON.stringify({
-                    statementId: statement.id,
-                    pdfPassword: data.pdfPassword,
-                });
-                await tasksClient.createTask({
-                    parent,
-                    task: {
-                        httpRequest: {
-                            httpMethod: 'POST' as const,
-                            url: `${process.env.WORKER_URL}/jobs/parse-statement`,
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Worker-Secret': process.env.WORKER_SECRET!,
-                            },
-                            body: Buffer.from(taskPayload).toString('base64'),
-                        },
-                    },
-                });
+                await enqueueStatementParse(statement.id, data.pdfPassword || undefined);
             } catch (err) {
                 console.error('[statements/upload] Failed to dispatch Cloud Task:', err);
-                await prisma.statement.update({
-                    where: { id: statement.id },
+                await prisma.statement.updateMany({
+                    where: { id: statement.id, parseStatus: 'UPLOADED' },
                     data: {
                         parseStatus: 'ERROR',
-                        errorMessage: 'Unable to queue processing. Please retry from the statement list.',
+                        errorMessage: dispatchErrorMessage(err),
                     },
                 });
                 return NextResponse.json(
@@ -191,6 +183,44 @@ export async function POST(request: Request) {
             });
 
             return NextResponse.json(statement);
+
+        } else if (action === 'retry') {
+            const statement = await prisma.statement.findUnique({
+                where: { id: data.statementId },
+                include: { workspace: { select: { userId: true } } },
+            });
+
+            if (!statement || statement.workspace.userId !== session.user.id) {
+                return NextResponse.json({ error: 'Statement not found' }, { status: 404 });
+            }
+
+            if (statement.parseStatus !== 'ERROR') {
+                return NextResponse.json({ error: 'Only failed statements can be retried.' }, { status: 409 });
+            }
+
+            // Mark the statement pending before task creation. If createTask has
+            // an indeterminate network failure but the task was accepted, the
+            // worker can safely claim this UPLOADED row.
+            await prisma.statement.update({
+                where: { id: statement.id },
+                data: { parseStatus: 'UPLOADED', errorMessage: null },
+            });
+
+            try {
+                await enqueueStatementParse(statement.id);
+            } catch (err) {
+                console.error('[statements/upload] Failed to retry Cloud Task:', err);
+                await prisma.statement.updateMany({
+                    where: { id: statement.id, parseStatus: 'UPLOADED' },
+                    data: { parseStatus: 'ERROR', errorMessage: dispatchErrorMessage(err) },
+                });
+                return NextResponse.json(
+                    { error: 'Statement could not be queued for processing. Please retry shortly.' },
+                    { status: 503 }
+                );
+            }
+
+            return NextResponse.json({ success: true, statementId: statement.id });
 
         } else if (action === 'list') {
             // Verify workspace ownership before listing (prevents IDOR)

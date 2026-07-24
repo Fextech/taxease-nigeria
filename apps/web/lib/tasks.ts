@@ -1,28 +1,74 @@
-import { CloudTasksClient } from '@google-cloud/tasks';
+type WorkerJobPath = '/jobs/parse-statement' | '/jobs/generate-report';
 
-/**
- * Returns a configured CloudTasksClient.
- *
- * - On Cloud Run (GCP): uses Application Default Credentials automatically.
- * - On Vercel (external): reads GOOGLE_APPLICATION_CREDENTIALS_JSON env var
- *   which should contain the full service account key JSON as a string.
- */
-export function getTasksClient(): CloudTasksClient {
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
-        const credentials = JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
-        return new CloudTasksClient({ credentials });
+export class TaskConfigurationError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'TaskConfigurationError';
     }
-    // Running on GCP (Cloud Run) — uses the attached service account automatically
-    return new CloudTasksClient();
+}
+
+function requiredEnv(name: string): string {
+    const value = process.env[name]?.trim();
+    if (!value) {
+        throw new TaskConfigurationError(`${name} is not configured.`);
+    }
+    return value;
+}
+
+function getApiUrl(): string {
+    const configuredUrl = process.env.API_URL?.trim() || process.env.NEXT_PUBLIC_API_URL?.trim();
+    if (!configuredUrl) {
+        throw new TaskConfigurationError('API_URL (or NEXT_PUBLIC_API_URL) is not configured.');
+    }
+    const apiUrl = configuredUrl.replace(/\/+$/, '');
+    try {
+        const parsed = new URL(apiUrl);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+            throw new Error('unsupported protocol');
+        }
+    } catch {
+        throw new TaskConfigurationError('API_URL must be an absolute HTTP(S) URL.');
+    }
+    return apiUrl;
 }
 
 /**
- * Returns the fully-qualified Cloud Tasks queue path.
+ * Sends a job request to the API service. The API runs on Cloud Run with the
+ * BankLens dispatcher service account, so it is the only service that creates
+ * Cloud Tasks. This keeps Google service-account credentials out of the web
+ * deployment (which runs outside GCP).
  */
-export function getQueuePath(client: CloudTasksClient): string {
-    return client.queuePath(
-        process.env.GCP_PROJECT_ID!,
-        process.env.GCP_TASKS_LOCATION || 'europe-west1',
-        process.env.GCP_TASKS_QUEUE    || 'banklens-jobs'
-    );
+export async function enqueueWorkerJob(
+    path: WorkerJobPath,
+    payload: Record<string, unknown>
+): Promise<void> {
+    const apiUrl = getApiUrl();
+    const internalSecret = requiredEnv('INTERNAL_API_SECRET');
+    if (internalSecret.length < 32) {
+        throw new TaskConfigurationError('INTERNAL_API_SECRET must contain at least 32 characters.');
+    }
+
+    const endpoint = path === '/jobs/parse-statement'
+        ? '/internal/jobs/parse-statement'
+        : '/internal/jobs/generate-report';
+
+    let response: Response;
+    try {
+        response = await fetch(`${apiUrl}${endpoint}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Internal-Api-Secret': internalSecret,
+            },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(15_000),
+        });
+    } catch (error) {
+        throw new Error(`API job dispatch request failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    if (!response.ok) {
+        const detail = (await response.text()).slice(0, 500);
+        throw new Error(`API job dispatch failed (${response.status}): ${detail || response.statusText}`);
+    }
 }
