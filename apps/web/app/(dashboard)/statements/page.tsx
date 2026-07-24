@@ -585,13 +585,13 @@ export default function StatementsPage() {
                           body: formData
                         });
 
+                        const data = await res.json().catch(() => ({}));
                         if (!res.ok) {
-                          const errData = await res.json().catch(() => ({}));
+                          const errData = data as { error?: string };
                           console.error("[Password Check] Validation service failed:", errData);
-                          throw new Error("Validation service failed");
+                          throw new Error(errData.error || "Password validation service failed");
                         }
 
-                        const data = await res.json();
                         if (!data.valid) {
                           setPasswordModalError(data.error || "Incorrect PDF password. Please try again.");
                           setCheckingPassword(false);

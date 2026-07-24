@@ -15,6 +15,25 @@ import { enqueueParseJob, enqueueReportJob } from './services/queue.service.js';
 // Cloud Run supplies PORT. API_PORT remains a convenient local override.
 const PORT = Number(process.env.PORT || process.env.API_PORT) || 3001;
 
+async function getParserAuthorizationHeader(parserUrl: string): Promise<Record<string, string>> {
+    if (!process.env.K_SERVICE) {
+        return {};
+    }
+
+    const audience = parserUrl.replace(/\/+$/, '');
+    const metadataResponse = await fetch(
+        'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity'
+        + `?audience=${encodeURIComponent(audience)}`,
+        { headers: { 'Metadata-Flavor': 'Google' } }
+    );
+
+    if (!metadataResponse.ok) {
+        throw new Error(`Unable to obtain parser identity token (${metadataResponse.status}).`);
+    }
+
+    return { Authorization: `Bearer ${await metadataResponse.text()}` };
+}
+
 async function main() {
     // Fail fast on boot if admin JWT signing is misconfigured.
     getAdminJwtSecret();
@@ -42,6 +61,13 @@ async function main() {
         credentials: true,
     });
 
+    // The web server forwards password-check uploads as an untouched multipart
+    // stream. Keep it as a stream here too, so the parser receives the original
+    // boundary and bytes rather than a reconstructed file.
+    fastify.addContentTypeParser('multipart/form-data', (request, payload, done) => {
+        done(null, payload);
+    });
+
     // Health check
     fastify.get('/health', async () => {
         return { status: 'ok', timestamp: new Date().toISOString() };
@@ -64,6 +90,42 @@ async function main() {
             } catch (error) {
                 request.log.error({ error }, 'Failed to create parse-statement Cloud Task');
                 return reply.code(503).send({ error: 'Unable to create parse-statement task.' });
+            }
+        }
+    );
+
+    fastify.post<{ Body: NodeJS.ReadableStream }>(
+        '/internal/statements/check-password',
+        { preHandler: [verifyInternalApiSecret] },
+        async (request, reply) => {
+            let parserUrl = process.env.PARSER_URL || 'http://127.0.0.1:8000';
+            if (!parserUrl.startsWith('http://') && !parserUrl.startsWith('https://')) {
+                parserUrl = `https://${parserUrl}`;
+            }
+
+            try {
+                const authHeaders = await getParserAuthorizationHeader(parserUrl);
+                const parserResponse = await fetch(`${parserUrl}/check-password`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': request.headers['content-type'] || 'multipart/form-data',
+                        ...authHeaders,
+                    },
+                    body: request.body as unknown as BodyInit,
+                    // Required by Node.js fetch for a streaming request body.
+                    // @ts-expect-error The DOM type definitions omit Node's duplex option.
+                    duplex: 'half',
+                    signal: AbortSignal.timeout(15_000),
+                });
+
+                const responseText = await parserResponse.text();
+                return reply
+                    .code(parserResponse.status)
+                    .header('Content-Type', parserResponse.headers.get('content-type') || 'application/json')
+                    .send(responseText);
+            } catch (error) {
+                request.log.error({ error }, 'Failed to proxy password validation to parser');
+                return reply.code(503).send({ valid: false, error: 'Password validation service is unavailable.' });
             }
         }
     );

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 
+export const runtime = 'nodejs';
+
 export async function POST(request: Request) {
     const session = await auth();
     if (!session?.user?.id) {
@@ -8,10 +10,14 @@ export async function POST(request: Request) {
     }
 
     try {
-        let PARSER_URL = process.env.PARSER_URL || 'http://127.0.0.1:8000';
-        // Ensure the URL has a scheme
-        if (!PARSER_URL.startsWith('http://') && !PARSER_URL.startsWith('https://')) {
-            PARSER_URL = `https://${PARSER_URL}`;
+        const apiUrl = (process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || '').replace(/\/+$/, '');
+        const internalSecret = process.env.INTERNAL_API_SECRET?.trim();
+        if (!apiUrl || !internalSecret || internalSecret.length < 32) {
+            console.error('[statements/check] Internal API password validation is not configured');
+            return NextResponse.json(
+                { valid: false, error: 'Password validation service is currently unavailable' },
+                { status: 503 }
+            );
         }
         
         // Proxy the exact headers (importantly: content-type with its auto-generated boundary) 
@@ -19,11 +25,12 @@ export async function POST(request: Request) {
         // This guarantees the PDF binary is never parsed, manipulated, or corrupted by Node.js.
         let res;
         try {
-            res = await fetch(`${PARSER_URL}/check-password`, {
+            res = await fetch(`${apiUrl}/internal/statements/check-password`, {
                 method: 'POST',
                 headers: {
                     // Pass the original boundary through
                     'Content-Type': request.headers.get('content-type') || 'multipart/form-data',
+                    'X-Internal-Api-Secret': internalSecret,
                 },
                 body: request.body, // Pass the raw ReadableStream
                 // @ts-ignore - Required for Node.js fetch when streaming request bodies
@@ -38,7 +45,10 @@ export async function POST(request: Request) {
         if (!res.ok) {
             const errData = await res.text().catch(() => "");
             console.warn(`[statements/check] Parser returned HTTP ${res.status}:`, errData);
-            return NextResponse.json({ valid: false, error: 'Parser rejected request' });
+            return NextResponse.json(
+                { valid: false, error: 'Password validation service is currently unavailable. Please retry shortly.' },
+                { status: 502 }
+            );
         }
 
         const data = await res.json();
