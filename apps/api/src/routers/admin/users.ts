@@ -2,6 +2,8 @@ import { adminProcedure, operationsProcedure, superAdminProcedure, router } from
 import { z } from 'zod';
 import { sendBroadcastEmail } from '../../lib/mail.js';
 
+const OPEN_TICKET_STATUSES = ['OPEN', 'IN_PROGRESS', 'AWAITING_USER'] as const;
+
 export const adminUsersRouter = router({
     listUsers: adminProcedure
         .input(
@@ -69,6 +71,21 @@ export const adminUsersRouter = router({
                 }
             });
 
+            const openTicketCounts = items.length > 0
+                ? await ctx.prisma.supportTicket.groupBy({
+                    by: ['userId'],
+                    where: {
+                        userId: { in: items.map((item) => item.id) },
+                        status: { in: [...OPEN_TICKET_STATUSES] },
+                    },
+                    _count: { _all: true },
+                })
+                : [];
+
+            const openTicketCountByUserId = new Map(
+                openTicketCounts.map((entry) => [entry.userId, entry._count._all])
+            );
+
             let nextCursor: typeof cursor | undefined = undefined;
             if (items.length > limit) {
                 const nextItem = items.pop();
@@ -76,7 +93,10 @@ export const adminUsersRouter = router({
             }
 
             return {
-                items,
+                items: items.map((item) => ({
+                    ...item,
+                    openTicketCount: openTicketCountByUserId.get(item.id) || 0,
+                })),
                 nextCursor,
             };
         }),
@@ -92,13 +112,19 @@ export const adminUsersRouter = router({
                             statements: {
                                 take: 5,
                                 orderBy: { createdAt: 'desc' },
+                                where: { deletedAt: null },
                                 select: {
                                     id: true,
                                     month: true,
                                     bankName: true,
                                     parseStatus: true,
                                     createdAt: true,
-                                }
+                                },
+                            },
+                            _count: {
+                                select: {
+                                    statements: { where: { deletedAt: null } },
+                                },
                             }
                         }
                     },
@@ -121,15 +147,46 @@ export const adminUsersRouter = router({
             // Mask email by default
             const maskedEmail = user.email.replace(/(?<=.).(?=[^@]*?.@)/g, '*');
 
-            const supportTickets = await ctx.prisma.supportTicket.findMany({
-                where: { userId: input.id },
-                orderBy: { createdAt: 'desc' }
-            });
-
-            const paystackTransactions = await ctx.prisma.paystackTransaction.findMany({
-                where: { userId: input.id },
-                orderBy: { createdAt: 'desc' }
-            });
+            const [supportTickets, paystackTransactions, statementActivity, activeStatements] = await Promise.all([
+                ctx.prisma.supportTicket.findMany({
+                    where: { userId: input.id },
+                    orderBy: { createdAt: 'desc' },
+                }),
+                ctx.prisma.paystackTransaction.findMany({
+                    where: { userId: input.id },
+                    orderBy: { createdAt: 'desc' },
+                }),
+                ctx.prisma.auditLog.findMany({
+                    where: { userId: input.id, entityType: 'Statement' },
+                    orderBy: { createdAt: 'desc' },
+                    take: 100,
+                    select: {
+                        id: true,
+                        entityId: true,
+                        action: true,
+                        oldValue: true,
+                        newValue: true,
+                        createdAt: true,
+                    },
+                }),
+                ctx.prisma.statement.findMany({
+                    where: { workspace: { userId: input.id }, deletedAt: null },
+                    orderBy: { createdAt: 'desc' },
+                    select: {
+                        id: true,
+                        month: true,
+                        bankName: true,
+                        originalFilename: true,
+                        parseStatus: true,
+                        rowCount: true,
+                        createdAt: true,
+                        workspace: { select: { taxYear: true } },
+                    },
+                }),
+            ]);
+            const openTicketCount = supportTickets.filter((ticket) =>
+                OPEN_TICKET_STATUSES.includes(ticket.status as typeof OPEN_TICKET_STATUSES[number])
+            ).length;
 
             // Calculate overall totals
             const totalSpent = paystackTransactions
@@ -155,6 +212,7 @@ export const adminUsersRouter = router({
                 deletedAt: user.deletedAt?.toISOString() ?? null,
                 totalSpent,
                 totalCredits,
+                openTicketCount,
                 transactions: paystackTransactions.map(tx => ({
                     id: tx.id,
                     reference: tx.reference,
@@ -185,13 +243,33 @@ export const adminUsersRouter = router({
                     provider: a.provider,
                     type: a.type,
                 })),
+                statementActivity: statementActivity.map((event) => ({
+                    id: event.id,
+                    statementId: event.entityId,
+                    action: event.action,
+                    oldValue: event.oldValue,
+                    newValue: event.newValue,
+                    createdAt: event.createdAt.toISOString(),
+                })),
+                activeStatements: activeStatements.map((statement) => ({
+                    id: statement.id,
+                    taxYear: statement.workspace.taxYear,
+                    month: statement.month,
+                    bankName: statement.bankName,
+                    originalFilename: statement.originalFilename,
+                    parseStatus: statement.parseStatus,
+                    rowCount: statement.rowCount,
+                    createdAt: statement.createdAt.toISOString(),
+                })),
                 workspaces: user.workspaces.map((ws) => ({
                     id: ws.id,
                     taxYear: ws.taxYear,
                     status: ws.status,
                     isUnlocked: ws.isUnlocked,
                     statementCredits: ws.statementCredits,
+                    reportGenerationCount: ws.reportGenerationCount,
                     createdAt: ws.createdAt.toISOString(),
+                    statementCount: ws._count.statements,
                     statements: ws.statements.map((s) => ({
                         id: s.id,
                         month: s.month,
@@ -201,6 +279,90 @@ export const adminUsersRouter = router({
                     })),
                 })),
             };
+        }),
+
+    getUserMessageLog: adminProcedure
+        .input(z.object({
+            userId: z.string(),
+            limit: z.number().min(1).max(100).default(100),
+        }))
+        .query(async ({ ctx, input }) => {
+            const directMessageModel = (ctx.prisma as any).directMessage;
+            const [directMessages, broadcastMessages] = await Promise.all([
+                directMessageModel.findMany({
+                    where: { userId: input.userId },
+                    orderBy: { createdAt: 'desc' },
+                    take: input.limit,
+                    include: {
+                        admin: {
+                            select: { id: true, fullName: true, email: true },
+                        },
+                    },
+                }),
+                ctx.prisma.broadcastRecipient.findMany({
+                    where: { userId: input.userId },
+                    orderBy: { createdAt: 'desc' },
+                    take: input.limit,
+                    include: {
+                        broadcast: {
+                            include: {
+                                createdBy: {
+                                    select: { id: true, fullName: true, email: true },
+                                },
+                            },
+                        },
+                    },
+                }),
+            ]);
+
+            return [
+                ...directMessages.map((message: any) => ({
+                    id: `direct:${message.id}`,
+                    sourceId: message.id,
+                    category: 'DIRECT' as const,
+                    subject: message.subject,
+                    body: message.body,
+                    channel: 'EMAIL',
+                    deliveryStatus: message.deliveryStatus,
+                    resendEmailId: message.resendEmailId,
+                    lastEventType: message.lastEventType,
+                    lastEventAt: message.lastEventAt?.toISOString() ?? null,
+                    deliveredAt: message.deliveredAt?.toISOString() ?? null,
+                    openedAt: message.openedAt?.toISOString() ?? null,
+                    failedAt: message.failedAt?.toISOString() ?? null,
+                    failReason: message.failReason,
+                    createdAt: message.createdAt.toISOString(),
+                    createdBy: {
+                        id: message.admin.id,
+                        name: message.admin.fullName,
+                        email: message.admin.email,
+                    },
+                })),
+                ...broadcastMessages.map((message: any) => ({
+                    id: `broadcast:${message.id}`,
+                    sourceId: message.broadcastId,
+                    category: 'BROADCAST' as const,
+                    subject: message.broadcast.subject,
+                    body: message.broadcast.body,
+                    channel: message.channel,
+                    deliveryStatus: message.deliveryStatus,
+                    resendEmailId: message.resendEmailId,
+                    lastEventType: message.lastEventType,
+                    lastEventAt: message.lastEventAt?.toISOString() ?? null,
+                    deliveredAt: message.deliveredAt?.toISOString() ?? null,
+                    openedAt: message.openedAt?.toISOString() ?? null,
+                    failedAt: message.failedAt?.toISOString() ?? null,
+                    failReason: message.failReason,
+                    createdAt: message.createdAt.toISOString(),
+                    createdBy: {
+                        id: message.broadcast.createdBy.id,
+                        name: message.broadcast.createdBy.fullName,
+                        email: message.broadcast.createdBy.email,
+                    },
+                })),
+            ]
+                .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+                .slice(0, input.limit);
         }),
 
     revealEmail: operationsProcedure
@@ -243,13 +405,54 @@ export const adminUsersRouter = router({
             });
             if (!user) throw new Error("User not found");
 
-            // Send email
-            await sendBroadcastEmail({
-                email: user.email,
-                name: user.name || '',
-                subject: input.subject,
-                body: input.body
+            const directMessageModel = (ctx.prisma as any).directMessage;
+
+            const directMessage = await directMessageModel.create({
+                data: {
+                    userId: user.id,
+                    adminId: ctx.admin.id,
+                    subject: input.subject,
+                    body: input.body,
+                    deliveryStatus: 'PENDING',
+                }
             });
+
+            try {
+                const result = await sendBroadcastEmail({
+                    email: user.email,
+                    name: user.name || '',
+                    subject: input.subject,
+                    body: input.body,
+                    tags: [
+                        { name: 'message_type', value: 'direct' },
+                        { name: 'user_id', value: user.id },
+                        { name: 'direct_message_id', value: directMessage.id },
+                    ],
+                });
+
+                await directMessageModel.update({
+                    where: { id: directMessage.id },
+                    data: {
+                        resendEmailId: result.providerMessageId,
+                        deliveryStatus: 'SENT',
+                        lastEventType: 'email.sent',
+                        lastEventAt: new Date(),
+                    }
+                });
+            } catch (error) {
+                await directMessageModel.update({
+                    where: { id: directMessage.id },
+                    data: {
+                        deliveryStatus: 'FAILED',
+                        failedAt: new Date(),
+                        lastEventType: 'email.failed',
+                        lastEventAt: new Date(),
+                        failReason: error instanceof Error ? error.message : String(error),
+                    }
+                });
+
+                throw error;
+            }
 
             // Create notification
             await ctx.prisma.notification.create({
@@ -269,11 +472,11 @@ export const adminUsersRouter = router({
                     adminRole: ctx.admin.role,
                     actionCode: 'USER_MESSAGE_SENT',
                     targetEntity: `User:${user.name || 'Unknown'} (${user.email})`,
-                    metadata: { subject: input.subject }
+                    metadata: { subject: input.subject, directMessageId: directMessage.id }
                 }
             });
 
-            return { success: true };
+            return { success: true, directMessageId: directMessage.id };
         }),
 
     giftCredit: operationsProcedure

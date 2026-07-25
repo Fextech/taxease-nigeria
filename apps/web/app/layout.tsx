@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist } from "next/font/google";
+import Script from "next/script";
 import { Providers } from "./providers";
 import "./globals.css";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,11 @@ export default function RootLayout({
       </head>
       <body className={`${geist.variable} antialiased`} style={{ margin: 0 }}>
         <Providers>{children}</Providers>
+        <Script
+          src="https://refairn.com/tracker.js"
+          data-product="cmqljod7m0001wo515w72z2wz"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );

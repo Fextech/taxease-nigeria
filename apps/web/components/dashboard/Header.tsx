@@ -35,6 +35,14 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
     setTimeout(() => setToastMsg(null), 4000);
   };
 
+  const handleSignOut = async () => {
+    await signOut({
+      redirect: false,
+      callbackUrl: "/sign-in",
+    });
+    window.location.assign("/sign-in?loggedOut=1");
+  };
+
   const profileRef = useRef<HTMLDivElement>(null);
   const workspaceRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
@@ -365,7 +373,7 @@ export default function Header({ title = "Dashboard" }: { title?: string }) {
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>person</span>
                   Account Settings
                 </Link>
-                <button className="dash-dropdown-item dash-dropdown-signout" onClick={() => signOut({ callbackUrl: "/sign-in" })}>
+                <button className="dash-dropdown-item dash-dropdown-signout" onClick={handleSignOut}>
                   <span className="material-symbols-outlined" style={{ fontSize: 16 }}>logout</span>
                   Sign out
                 </button>

@@ -2,19 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { computeTax, type Relief } from '@banklens/shared';
-import { Queue } from 'bullmq';
-
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const parsedUrl = new URL(REDIS_URL);
-
-const redisConnection = {
-    host: parsedUrl.hostname,
-    port: Number(parsedUrl.port) || 6379,
-    password: parsedUrl.password || undefined,
-    tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-};
+import { enqueueWorkerJob } from '@/lib/tasks';
 
 const REPORT_CATEGORIES = [
     'BUSINESS',
@@ -25,8 +13,6 @@ const REPORT_CATEGORIES = [
     'EXEMPT',
     'UNCLASSIFIED',
 ] as const;
-
-const generateReportQueue = new Queue('generate-report', { connection: redisConnection });
 
 /**
  * POST /api/reports
@@ -198,14 +184,30 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
             }
 
-            // Enqueue report generation job
-            await generateReportQueue.add('generate-report', {
+            // Dispatch generate-report Cloud Task
+            await enqueueWorkerJob('/jobs/generate-report', {
                 workspaceId: data.workspaceId,
                 userId: session.user.id,
                 userEmail: session.user.email,
                 taxYear: workspace.taxYear,
                 additionalDeductions: data.additionalDeductions,
                 annualRentPaid: data.annualRentPaid,
+            });
+
+            // Only record consumption after Cloud Tasks has accepted the job.
+            await prisma.workspace.update({
+                where: { id: workspace.id },
+                data: { reportGenerationCount: { increment: 1 } }
+            });
+
+            await prisma.auditLog.create({
+                data: {
+                    userId: session.user.id,
+                    entityType: 'Workspace',
+                    entityId: workspace.id,
+                    action: 'GENERATE_REPORT',
+                    newValue: { taxYear: workspace.taxYear }
+                }
             });
 
             return NextResponse.json({ success: true, message: 'Report generation started' });

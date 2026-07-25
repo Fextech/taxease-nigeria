@@ -25,12 +25,14 @@ COPY . .
 
 RUN pnpm --filter @banklens/shared build && pnpm --filter @banklens/worker build
 
+# ─────────────────────────────────────────────────────────
 FROM node:20-bookworm-slim AS runner
 
 ENV NODE_ENV=production
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
+# Chromium + all required system libraries for Puppeteer on Cloud Run
 RUN apt-get update && apt-get install -y \
     chromium \
     ca-certificates \
@@ -81,4 +83,7 @@ COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/shared/node_modules ./packages/shared/node_modules
 COPY --from=builder /app/packages/shared/package.json ./packages/shared/package.json
 
-CMD ["node", "apps/worker/dist/worker.js"]
+# Cloud Run injects PORT env var; default 8080
+EXPOSE 8080
+
+CMD ["node", "apps/worker/dist/server.js"]

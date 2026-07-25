@@ -1,6 +1,14 @@
 import { Resend } from "resend";
 
-const FROM_EMAIL = process.env.EMAIL_FROM || "BankLens Support <onboarding@resend.dev>";
+const SENDER_NAME = process.env.SENDER_NAME || "BankLens Support";
+const EMAIL_ADDRESS = process.env.EMAIL_FROM || "onboarding@resend.dev";
+const SUPPORT_ADDRESS = process.env.SUPPORT_EMAIL || EMAIL_ADDRESS;
+const FROM_EMAIL = `${SENDER_NAME} <${EMAIL_ADDRESS}>`;
+const SUPPORT_FROM_EMAIL = `${SENDER_NAME} <${SUPPORT_ADDRESS}>`;
+
+export type SentEmailResult = {
+  providerMessageId: string;
+};
 
 function getResendClient(): Resend {
   const apiKey = process.env.RESEND_API_KEY;
@@ -8,28 +16,49 @@ function getResendClient(): Resend {
   return new Resend(apiKey);
 }
 
+function ensureEmailAccepted(
+  response: Awaited<ReturnType<Resend["emails"]["send"]>>,
+  context: string,
+): SentEmailResult {
+  if (response.error) {
+    throw new Error(`${context}: ${response.error.message}`);
+  }
+
+  const providerMessageId = response.data?.id;
+  if (!providerMessageId) {
+    throw new Error(`${context}: missing provider message id`);
+  }
+
+  return { providerMessageId };
+}
+
+// send support reply email
 export async function sendSupportReplyEmail({
   email,
   name,
   subject,
   ticketId,
   replyBody,
+  tags,
 }: {
   email: string;
   name: string;
   subject: string;
   ticketId: string;
   replyBody: string;
+  tags?: Array<{ name: string; value: string }>;
 }) {
   const resend = getResendClient();
 
-  await resend.emails.send({
-    from: FROM_EMAIL,
+  const response = await resend.emails.send({
+    from: SUPPORT_FROM_EMAIL,
     to: email,
+    replyTo: SUPPORT_ADDRESS,
     subject: `Re: ${subject} [Ticket #${ticketId.slice(-8)}]`,
+    tags,
     html: `
 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #374151;">
-  <div style="background: #0a0a0f; padding: 32px 24px; border-radius: 12px 12px 0 0; text-align: center;">
+  <div style="background: #253A3D; padding: 32px 24px; border-radius: 12px 12px 0 0; text-align: center;">
     <h1 style="color: #00ffd8; margin: 0; font-size: 24px; letter-spacing: -0.025em; font-weight: 800;">BankLens Nigeria</h1>
     <p style="color: rgba(255, 255, 255, 0.6); margin-top: 4px; font-size: 14px;">Support Desk</p>
   </div>
@@ -59,28 +88,34 @@ export async function sendSupportReplyEmail({
 </div>
     `,
   });
+
+  return ensureEmailAccepted(response, "Failed to send support reply email");
 }
 
+// send broadcast email
 export async function sendBroadcastEmail({
   email,
   name,
   subject,
   body,
+  tags,
 }: {
   email: string;
   name: string;
   subject: string;
   body: string;
+  tags?: Array<{ name: string; value: string }>;
 }) {
   const resend = getResendClient();
 
-  await resend.emails.send({
+  const response = await resend.emails.send({
     from: FROM_EMAIL,
     to: email,
     subject,
+    tags,
     html: `
 <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #374151;">
-  <div style="background: #0a0a0f; padding: 32px 24px; border-radius: 12px 12px 0 0; text-align: center;">
+  <div style="background: #253A3D; padding: 32px 24px; border-radius: 12px 12px 0 0; text-align: center;">
     <h1 style="color: #00ffd8; margin: 0; font-size: 24px; letter-spacing: -0.025em; font-weight: 800;">BankLens Nigeria</h1>
   </div>
   
@@ -101,4 +136,6 @@ export async function sendBroadcastEmail({
 </div>
     `,
   });
+
+  return ensureEmailAccepted(response, "Failed to send broadcast email");
 }

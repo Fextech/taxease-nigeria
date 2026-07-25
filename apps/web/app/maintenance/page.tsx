@@ -1,9 +1,9 @@
 import Link from "next/link";
 import Image from "next/image";
 import BackgroundLayer from "@/components/BackgroundLayer";
-import MarketingHeader from "@/components/MarketingHeader";
 import MarketingFooter from "@/components/MarketingFooter";
-import { sanitizeHtml } from "@/lib/sanitize-html";
+import TrustedHtmlFrame from "@/components/TrustedHtmlFrame";
+import { prisma } from "@/lib/prisma";
 
 export const metadata = {
   title: "Maintenance | Banklens Nigeria",
@@ -12,10 +12,12 @@ export const metadata = {
 
 async function getMaintenanceHtml(): Promise<string> {
   try {
-    const baseUrl = process.env.NEXTAUTH_URL || process.env.APP_URL || 'http://localhost:3000';
-    const res = await fetch(`${baseUrl}/api/maintenance`, { cache: 'no-store' });
-    const data = await res.json();
-    return data.html || '';
+    const htmlRow = await prisma.appConfig.findUnique({
+      where: { key: "maintenance_mode_html" },
+      select: { value: true },
+    });
+
+    return htmlRow?.value || '';
   } catch {
     return '<h2 style="text-align:center;color:#94a3b8;margin-top:60px;">We are currently undergoing maintenance. Please check back later.</h2>';
   }
@@ -46,7 +48,11 @@ export default async function MaintenancePage() {
 
       {/* Body — dynamic HTML from admin */}
       <main className="flex-1 w-full max-w-4xl mx-auto px-6 py-16 flex flex-col items-center justify-center relative z-10">
-        <div dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }} className="w-full text-center" />
+        <TrustedHtmlFrame
+          html={html}
+          title="Maintenance page content"
+          className="w-full"
+        />
       </main>
 
       <MarketingFooter />

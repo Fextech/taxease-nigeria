@@ -42,7 +42,6 @@ apps/api/prisma/*.db
 
 # Docker volumes
 postgres_data/
-redis_data/
 
 # OS
 Thumbs.db

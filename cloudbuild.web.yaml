@@ -1,0 +1,57 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker build \
+          -f apps/web/Dockerfile \
+          --build-arg DATABASE_URL=$$DATABASE_URL \
+          --build-arg DATABASE_URL_UNPOOLED=$$DATABASE_URL_UNPOOLED \
+          --build-arg AUTH_SECRET=$$AUTH_SECRET \
+          --build-arg RESEND_API_KEY=$$RESEND_API_KEY \
+          --build-arg AWS_ACCESS_KEY_ID=$$AWS_ACCESS_KEY_ID \
+          --build-arg AWS_SECRET_ACCESS_KEY=$$AWS_SECRET_ACCESS_KEY \
+          --build-arg AWS_REGION=$$AWS_REGION \
+          --build-arg AWS_S3_BUCKET_NAME=$$AWS_S3_BUCKET_NAME \
+          --build-arg PAYSTACK_SECRET_KEY=$$PAYSTACK_SECRET_KEY \
+          -t europe-west1-docker.pkg.dev/banklens-prod/banklens/web \
+          .
+    secretEnv:
+      - DATABASE_URL
+      - DATABASE_URL_UNPOOLED
+      - AUTH_SECRET
+      - RESEND_API_KEY
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_REGION
+      - AWS_S3_BUCKET_NAME
+      - PAYSTACK_SECRET_KEY
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/banklens-prod/secrets/DATABASE_URL/versions/latest
+      env: 'DATABASE_URL'
+    - versionName: projects/banklens-prod/secrets/DATABASE_URL_UNPOOLED/versions/latest
+      env: 'DATABASE_URL_UNPOOLED'
+    - versionName: projects/banklens-prod/secrets/AUTH_SECRET/versions/latest
+      env: 'AUTH_SECRET'
+    - versionName: projects/banklens-prod/secrets/RESEND_API_KEY/versions/latest
+      env: 'RESEND_API_KEY'
+    - versionName: projects/banklens-prod/secrets/AWS_ACCESS_KEY_ID/versions/latest
+      env: 'AWS_ACCESS_KEY_ID'
+    - versionName: projects/banklens-prod/secrets/AWS_SECRET_ACCESS_KEY/versions/latest
+      env: 'AWS_SECRET_ACCESS_KEY'
+    - versionName: projects/banklens-prod/secrets/AWS_REGION/versions/latest
+      env: 'AWS_REGION'
+    - versionName: projects/banklens-prod/secrets/AWS_S3_BUCKET_NAME/versions/latest
+      env: 'AWS_S3_BUCKET_NAME'
+    - versionName: projects/banklens-prod/secrets/PAYSTACK_SECRET_KEY/versions/latest
+      env: 'PAYSTACK_SECRET_KEY'
+
+images:
+  - 'europe-west1-docker.pkg.dev/banklens-prod/banklens/web'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY

@@ -13,6 +13,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     Google({
       clientId: process.env.GOOGLE_CLIENT_ID!,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      allowDangerousEmailAccountLinking: true,
+      authorization: {
+        params: {
+          prompt: "select_account",
+        },
+      },
     }),
     Credentials({
       name: "Email",
@@ -69,14 +75,88 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     signIn: "/sign-in",
   },
   callbacks: {
-    async signIn({ user, account }) {
-      // Apply the same suspended/deleted gate to OAuth sign-ins.
+    async signIn({ user, account, profile }) {
       if (!user.email) {
         return false;
       }
 
-      const dbUser = await prisma.user.findUnique({
-        where: { email: user.email },
+      if (account?.provider === "google") {
+        const emailVerified =
+          typeof profile === "object" &&
+          profile !== null &&
+          "email_verified" in profile
+            ? Boolean((profile as { email_verified?: boolean }).email_verified)
+            : false;
+
+        if (!emailVerified) {
+          return "/sign-in?error=GoogleEmailNotVerified";
+        }
+
+        const linkedAccount = await prisma.account.findUnique({
+          where: {
+            provider_providerAccountId: {
+              provider: account.provider,
+              providerAccountId: account.providerAccountId,
+            },
+          },
+          include: {
+            user: {
+              select: {
+                id: true,
+                email: true,
+                isSuspended: true,
+                deletedAt: true,
+              },
+            },
+          },
+        });
+
+        if (linkedAccount && !linkedAccount.user) {
+          return "/sign-in?error=AccessDenied";
+        }
+
+        if (
+          linkedAccount?.user &&
+          linkedAccount.user.email.toLowerCase() !== user.email.toLowerCase()
+        ) {
+          return "/sign-in?error=GoogleAccountMismatch";
+        }
+
+        if (
+          linkedAccount?.user &&
+          (linkedAccount.user.isSuspended ||
+            linkedAccount.user.deletedAt !== null)
+        ) {
+          return "/sign-in?error=AccountSuspended";
+        }
+
+        const existingUser = await prisma.user.findFirst({
+          where: {
+            email: {
+              equals: user.email,
+              mode: "insensitive",
+            },
+          },
+          select: {
+            isSuspended: true,
+            deletedAt: true,
+          },
+        });
+
+        if (existingUser && (existingUser.isSuspended || existingUser.deletedAt !== null)) {
+          return "/sign-in?error=AccountSuspended";
+        }
+
+        return true;
+      }
+
+      const dbUser = await prisma.user.findFirst({
+        where: {
+          email: {
+            equals: user.email,
+            mode: "insensitive",
+          },
+        },
         select: { isSuspended: true, deletedAt: true },
       });
 
@@ -97,10 +177,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (new URL(url).origin === baseUrl) return url;
       return `${baseUrl}/overview`;
     },
-    async jwt({ token, user, trigger, session }) {
+    async jwt({ token, user, account, trigger, session }) {
       // On initial sign-in, attach user info
       if (user) {
         token.userId = user.id;
+        token.authProvider = account?.provider ?? token.authProvider;
 
         // Check if user has MFA enabled
         const dbUser = await prisma.user.findUnique({
@@ -150,6 +231,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         session.user.id = token.userId as string;
         (session as unknown as { mfaEnabled: boolean }).mfaEnabled = token.mfaEnabled as boolean;
         (session as unknown as { mfaVerified: boolean }).mfaVerified = token.mfaVerified as boolean;
+        (session as unknown as { authProvider?: string }).authProvider =
+          token.authProvider as string | undefined;
       }
       return session;
     },

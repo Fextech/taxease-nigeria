@@ -5,6 +5,15 @@ import { trpc } from "@/lib/trpc";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 
+const AI_PROVIDER_ICONS: Record<string, string> = {
+  GEMINI: "auto_awesome",
+  OPENAI: "neurology",
+  NVIDIA_NIM: "memory",
+  OPENROUTER: "account_tree",
+  GROQ: "speed",
+  ANTHROPIC: "psychology",
+};
+
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('profile');
   const utils = trpc.useUtils();
@@ -34,13 +43,67 @@ export default function SettingsPage() {
   const { data: integrations } = trpc.admin.settings.getIntegrationStatuses.useQuery();
   const pingIntegration = trpc.admin.settings.pingIntegration.useMutation();
 
+  // AI Model Routing
+  const { data: aiModelSettings } = trpc.admin.settings.getAiProviderConfigs.useQuery();
+  const {
+    data: providerModelLists,
+    refetch: refetchProviderModels,
+    isFetching: isFetchingProviderModels,
+  } = trpc.admin.settings.getAiProviderModels.useQuery(undefined, {
+    enabled: activeTab === "ai-model",
+    staleTime: 5 * 60 * 1000,
+    retry: false,
+  });
+  const [aiModels, setAiModels] = useState<Record<string, string>>({});
+  const [aiApiKeys, setAiApiKeys] = useState<Record<string, string>>({});
+  const [selectedAiProvider, setSelectedAiProvider] = useState<string>("");
+  const [showRecommendations, setShowRecommendations] = useState(false);
+  const saveAiProvider = trpc.admin.settings.saveAiProviderConfig.useMutation({
+      onSuccess: (_, variables) => {
+          setAiApiKeys((current) => ({ ...current, [variables.provider]: "" }));
+          utils.admin.settings.getAiProviderConfigs.invalidate();
+          utils.admin.settings.getAiProviderModels.invalidate();
+          toast.success("AI provider settings saved");
+      },
+      onError: (err) => toast.error(err.message),
+  });
+  const removeAiProvider = trpc.admin.settings.removeAiProviderConfig.useMutation({
+    onSuccess: (_, variables) => {
+      setAiApiKeys((current) => ({ ...current, [variables.provider]: "" }));
+      setAiModels((current) => {
+        const next = { ...current };
+        delete next[variables.provider];
+        return next;
+      });
+      utils.admin.settings.getAiProviderConfigs.invalidate();
+      utils.admin.settings.getAiProviderModels.invalidate();
+      toast.success("Saved provider key removed");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  useEffect(() => {
+    if (!aiModelSettings) return;
+    setAiModels((current) => {
+      const next = { ...current };
+      for (const provider of aiModelSettings.providers) {
+        if (!next[provider.id]) next[provider.id] = provider.model;
+      }
+      return next;
+    });
+    const activeProvider = aiModelSettings.providers.find((provider) => provider.isActive);
+    if (activeProvider) setSelectedAiProvider(activeProvider.id);
+  }, [aiModelSettings]);
+
   // Maintenance Data
   const { data: maintenanceData, refetch: refetchMaintenance } = trpc.admin.settings.getMaintenanceConfig.useQuery();
   const updateMaintenance = trpc.admin.settings.updateMaintenanceConfig.useMutation({
-      onSuccess: () => { refetchMaintenance(); toast.success('Maintenance settings saved!'); }
+      onSuccess: () => { refetchMaintenance(); toast.success('Maintenance settings saved!'); },
+      onError: (err) => toast.error(err.message)
   });
   const toggleMaintenance = trpc.admin.settings.toggleMaintenanceMode.useMutation({
-      onSuccess: () => refetchMaintenance()
+      onSuccess: () => { refetchMaintenance(); toast.success('Maintenance mode toggled!'); },
+      onError: (err) => toast.error(err.message)
   });
   const [maintenanceHtml, setMaintenanceHtml] = useState('');
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
@@ -55,7 +118,8 @@ export default function SettingsPage() {
   // How To Guide Data
   const { data: howToData, refetch: refetchHowTo } = trpc.admin.settings.getHowToGuide.useQuery();
   const updateHowTo = trpc.admin.settings.updateHowToGuide.useMutation({
-      onSuccess: () => { refetchHowTo(); toast.success('How-To guide saved!'); }
+      onSuccess: () => { refetchHowTo(); toast.success('How-To guide saved!'); },
+      onError: (err) => toast.error(err.message)
   });
   const [howToPages, setHowToPages] = useState<string[]>([]);
   const [activeHowToPageIdx, setActiveHowToPageIdx] = useState<number>(0);
@@ -74,6 +138,15 @@ export default function SettingsPage() {
     } catch (e) {
         alert("Ping failed");
     }
+  };
+
+  const refreshProviderModels = async () => {
+    const result = await refetchProviderModels();
+    if (result.error) {
+      toast.error("Could not refresh provider model lists");
+      return;
+    }
+    toast.success("Provider model lists refreshed");
   };
 
   // Profile Form
@@ -104,6 +177,7 @@ export default function SettingsPage() {
             { id: 'security', icon: 'lock', label: 'Security & 2FA' },
             { id: 'sessions', icon: 'devices', label: 'Active Sessions' },
             { id: 'integrations', icon: 'hub', label: 'Integrations' },
+            { id: 'ai-model', icon: 'smart_toy', label: 'AI Model' },
             { id: 'maintenance', icon: 'construction', label: 'Maintenance Mode' },
             { id: 'howto', icon: 'school', label: 'How-To Guide' },
           ].map(tab => (
@@ -246,7 +320,7 @@ export default function SettingsPage() {
                         <div key={key} style={{ display: "flex", flexDirection: "column", gap: 12, padding: "20px", background: "rgba(255,255,255,0.02)", borderRadius: 8, border: "1px solid rgba(255,255,255,0.05)" }}>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                                 <span style={{ fontSize: 16, fontWeight: 600, color: "var(--admin-text)", textTransform: "capitalize" }}>
-                                    {key === 's3' ? 'AWS S3' : key}
+                                    {key === 's3' ? 'AWS S3' : key === 'aiModel' ? 'AI Model Routing' : key}
                                 </span>
                                 <span className="admin-badge" style={{ 
                                     background: data.status === 'healthy' ? "rgba(0, 255, 128, 0.1)" : "rgba(255, 165, 0, 0.1)", 
@@ -256,7 +330,7 @@ export default function SettingsPage() {
                                 </span>
                             </div>
                             <span style={{ fontSize: 12, color: "var(--admin-text-muted)" }}>
-                                Last check: {new Date(data.lastPing).toLocaleString()}
+                                {data.detail ? `${data.detail} · ` : ""}Last check: {new Date(data.lastPing).toLocaleString()}
                             </span>
                             <button 
                                 className="admin-btn admin-btn--secondary admin-btn--sm" 
@@ -269,6 +343,153 @@ export default function SettingsPage() {
                         </div>
                     ))}
                 </div>
+            </div>
+          )}
+
+          {/* AI MODEL */}
+          {activeTab === 'ai-model' && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 20 }}>
+                <div>
+                  <h2 style={{ fontSize: 18, color: "var(--admin-text)", margin: 0 }}>AI Model Routing</h2>
+                  <p style={{ fontSize: 13, color: "var(--admin-text-muted)", margin: "6px 0 0", maxWidth: 620 }}>
+                    Store provider keys securely, choose the model for each provider, and select one active model for statement extraction.
+                  </p>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  <button
+                    className="admin-btn admin-btn--secondary admin-btn--sm"
+                    onClick={() => void refreshProviderModels()}
+                    disabled={isFetchingProviderModels}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+                    title="Reload the available models from each saved provider"
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{isFetchingProviderModels ? "progress_activity" : "refresh"}</span>
+                    {isFetchingProviderModels ? "Refreshing…" : "Refresh models"}
+                  </button>
+                  <button
+                    className="admin-btn admin-btn--secondary admin-btn--sm"
+                    onClick={() => setShowRecommendations(true)}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}
+                  >
+                    <span className="material-symbols-outlined" style={{ fontSize: 16 }}>info</span>
+                    Recommended models
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ padding: "14px 16px", borderRadius: 10, border: "1px solid rgba(0, 240, 255, 0.16)", background: "rgba(0, 240, 255, 0.05)", display: "flex", gap: 10, alignItems: "flex-start" }}>
+                <span className="material-symbols-outlined" style={{ color: "var(--admin-cyan)", fontSize: 19 }}>shield_lock</span>
+                <p style={{ color: "var(--admin-text-muted)", fontSize: 12, margin: 0, lineHeight: 1.55 }}>
+                  API keys are encrypted before storage and are never returned to this page. Enter a replacement key only when you need to rotate it.
+                </p>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 }}>
+                {aiModelSettings?.providers.map((provider) => {
+                  const isSelected = selectedAiProvider === provider.id;
+                  const liveModelList = providerModelLists?.providers.find((item) => item.provider === provider.id);
+                  const modelOptions = Array.from(new Map([
+                    ...(liveModelList?.models ?? []),
+                    { id: provider.model, label: provider.model },
+                    ...((liveModelList?.models.length ?? 0) > 0 ? [] : provider.recommendedModels),
+                  ].map((model) => [model.id, model])).values());
+                  return (
+                    <div key={provider.id} style={{ padding: 20, borderRadius: 12, border: isSelected ? "1px solid var(--admin-cyan)" : "1px solid rgba(255,255,255,0.08)", background: isSelected ? "rgba(0, 240, 255, 0.045)" : "rgba(255,255,255,0.02)", display: "flex", flexDirection: "column", gap: 16 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+                        <div style={{ display: "flex", gap: 10 }}>
+                          <span className="material-symbols-outlined" style={{ color: "var(--admin-cyan)", fontSize: 22 }}>{AI_PROVIDER_ICONS[provider.id]}</span>
+                          <div>
+                            <h3 style={{ color: "var(--admin-text)", fontSize: 15, margin: 0 }}>{provider.label}</h3>
+                            <p style={{ color: "var(--admin-text-muted)", fontSize: 12, lineHeight: 1.45, margin: "4px 0 0" }}>{provider.description}</p>
+                          </div>
+                        </div>
+                        {provider.apiKeyConfigured && <span className="admin-badge admin-badge--dim">Key saved</span>}
+                      </div>
+
+                      <label style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--admin-text-muted)", fontSize: 12, cursor: "pointer" }}>
+                        <input type="radio" name="active-ai-provider" checked={isSelected} onChange={() => setSelectedAiProvider(provider.id)} />
+                        Use this provider for new statement jobs
+                      </label>
+
+                      <div>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 7 }}>
+                          <label style={{ display: "block", fontSize: 11, color: "var(--admin-text-muted)", textTransform: "uppercase", letterSpacing: 0.7 }}>Model</label>
+                          <button
+                            type="button"
+                            onClick={() => void refreshProviderModels()}
+                            disabled={isFetchingProviderModels || !provider.apiKeyConfigured}
+                            title={provider.apiKeyConfigured ? `Refresh ${provider.label} models` : "Save an API key before refreshing models"}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: 0, border: "none", background: "transparent", color: "var(--admin-cyan)", cursor: provider.apiKeyConfigured ? "pointer" : "not-allowed", fontSize: 11, opacity: provider.apiKeyConfigured ? 1 : 0.5 }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>{isFetchingProviderModels ? "progress_activity" : "refresh"}</span>
+                            Refresh
+                          </button>
+                        </div>
+                        <select
+                          className="admin-input"
+                          value={aiModels[provider.id] ?? provider.model}
+                          onChange={(event) => setAiModels((current) => ({ ...current, [provider.id]: event.target.value }))}
+                        >
+                          {modelOptions.map((model) => (
+                            <option key={model.id} value={model.id}>{model.label === model.id ? model.id : `${model.label} — ${model.id}`}</option>
+                          ))}
+                        </select>
+                        {liveModelList?.error ? (
+                          <p style={{ color: "var(--admin-warning)", fontSize: 11, margin: "7px 0 0", lineHeight: 1.4 }}>{liveModelList.error}</p>
+                        ) : liveModelList ? (
+                          <p style={{ color: "var(--admin-text-muted)", fontSize: 11, margin: "7px 0 0" }}>{liveModelList.models.length} live model{liveModelList.models.length === 1 ? "" : "s"} available</p>
+                        ) : null}
+                      </div>
+
+                      <div>
+                        <label style={{ display: "block", fontSize: 11, color: "var(--admin-text-muted)", marginBottom: 7, textTransform: "uppercase", letterSpacing: 0.7 }}>
+                          {provider.apiKeyConfigured ? "Replace API key (optional)" : "API key"}
+                        </label>
+                        <input
+                          type="password"
+                          autoComplete="new-password"
+                          className="admin-input"
+                          value={aiApiKeys[provider.id] ?? ""}
+                          onChange={(event) => setAiApiKeys((current) => ({ ...current, [provider.id]: event.target.value }))}
+                          placeholder={provider.apiKeyConfigured ? "Leave blank to keep the stored key" : "Paste provider API key"}
+                        />
+                        {provider.apiKeyConfigured && (
+                          <button
+                            type="button"
+                            disabled={removeAiProvider.isPending}
+                            onClick={() => {
+                              if (window.confirm(`Remove the saved ${provider.label} API key? You can add it again later.`)) {
+                                removeAiProvider.mutate({ provider: provider.id });
+                              }
+                            }}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 8, padding: 0, border: "none", background: "transparent", color: "var(--admin-error)", cursor: "pointer", fontSize: 11 }}
+                          >
+                            <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
+                            Remove saved key
+                          </button>
+                        )}
+                      </div>
+
+                      <button
+                        className="admin-btn admin-btn--primary"
+                        disabled={saveAiProvider.isPending}
+                        onClick={() => saveAiProvider.mutate({
+                          provider: provider.id,
+                          model: aiModels[provider.id] ?? provider.model,
+                          apiKey: aiApiKeys[provider.id] || undefined,
+                          isActive: isSelected,
+                        })}
+                        style={{ alignSelf: "flex-start" }}
+                      >
+                        {saveAiProvider.isPending ? "Saving..." : "Save provider"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {!aiModelSettings && <p style={{ color: "var(--admin-text-muted)", fontSize: 13, margin: 0 }}>Loading AI providers…</p>}
             </div>
           )}
 
@@ -486,6 +707,35 @@ export default function SettingsPage() {
 
         </div>
       </div>
+
+      {showRecommendations && aiModelSettings && (
+        <div role="dialog" aria-modal="true" aria-label="Recommended AI models" style={{ position: "fixed", inset: 0, zIndex: 100, display: "grid", placeItems: "center", padding: 20, background: "rgba(3, 9, 12, 0.78)", backdropFilter: "blur(6px)" }} onClick={() => setShowRecommendations(false)}>
+          <div className="admin-card" style={{ width: "min(760px, 100%)", maxHeight: "80vh", overflowY: "auto", padding: 28, border: "1px solid rgba(0, 240, 255, 0.3)", boxShadow: "0 20px 70px rgba(0, 0, 0, 0.45)" }} onClick={(event) => event.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 16, alignItems: "flex-start", marginBottom: 20 }}>
+              <div>
+                <h2 style={{ fontSize: 19, color: "var(--admin-text)", margin: 0 }}>Recommended models</h2>
+                <p style={{ color: "var(--admin-text-muted)", fontSize: 12, margin: "6px 0 0" }}>Curated for accurate, schema-based bank statement extraction. You can still enter any supported model ID.</p>
+              </div>
+              <button className="admin-btn admin-btn--ghost admin-btn--sm" aria-label="Close" onClick={() => setShowRecommendations(false)}><span className="material-symbols-outlined">close</span></button>
+            </div>
+            <div style={{ display: "grid", gap: 14 }}>
+              {aiModelSettings.providers.map((provider) => (
+                <section key={provider.id} style={{ border: "1px solid rgba(255,255,255,0.07)", borderRadius: 10, padding: 16, background: "rgba(255,255,255,0.018)" }}>
+                  <h3 style={{ display: "flex", gap: 8, alignItems: "center", color: "var(--admin-text)", fontSize: 14, margin: "0 0 10px" }}><span className="material-symbols-outlined" style={{ color: "var(--admin-cyan)", fontSize: 18 }}>{AI_PROVIDER_ICONS[provider.id]}</span>{provider.label}</h3>
+                  <div style={{ display: "grid", gap: 8 }}>
+                    {provider.recommendedModels.map((model) => (
+                      <div key={model.id} style={{ display: "grid", gridTemplateColumns: "minmax(170px, 0.75fr) 1.25fr", gap: 12, fontSize: 12 }}>
+                        <code style={{ color: "var(--admin-cyan)", overflowWrap: "anywhere" }}>{model.id}</code>
+                        <span style={{ color: "var(--admin-text-muted)" }}>{model.note}</span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

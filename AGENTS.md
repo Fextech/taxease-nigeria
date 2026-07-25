@@ -6,8 +6,8 @@ This file provides crucial architectural context and rules for AI agents (Warp, 
 Turborepo managed with **pnpm 9.x** (Node ≥ 20).
 - **apps/web**: Next.js 16 (App Router, React 19). Runs on `:3000`.
 - **apps/api**: Fastify + tRPC server. Runs on `:3001`. Handles DB operations.
-- **apps/worker**: BullMQ worker connecting to Redis to process background jobs (`parse-statement`).
-- **apps/parser**: Python FastAPI service on `:8000` (virtualenv in `.venv/`). Uses `pdfplumber` and Gemini AI for PDF extraction.
+- **apps/worker**: Authenticated Fastify HTTP service on Cloud Run. Google Cloud Tasks dispatches background jobs such as `parse-statement` to it.
+- **apps/parser**: Python FastAPI service on `:8000` (virtualenv in `.venv/`). Uses `pdfplumber` and the Admin-configured AI provider for PDF extraction.
 - **packages/shared**: Zod schemas, tax computation logic, constants.
 
 ---

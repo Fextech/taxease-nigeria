@@ -2,10 +2,39 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getToken } from "next-auth/jwt";
 
+const MAINTENANCE_GATED_PATHS = new Set([
+  "/sign-up",
+]);
+
+async function isMaintenanceModeEnabled(req: NextRequest) {
+  try {
+    const res = await fetch(new URL("/api/maintenance", req.url), {
+      cache: "no-store",
+      headers: {
+        "x-middleware-subrequest": "maintenance-check",
+      },
+    });
+
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.enabled === true;
+  } catch {
+    return false;
+  }
+}
+
 // Simple middleware: protect everything except public paths
 // NextAuth handles its own /api/auth/* routes internally
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
+
+  if (
+    pathname !== "/maintenance" &&
+    MAINTENANCE_GATED_PATHS.has(pathname) &&
+    (await isMaintenanceModeEnabled(req))
+  ) {
+    return NextResponse.redirect(new URL("/maintenance", req.url));
+  }
 
   // Always allow these paths without any auth check
   const isPublicPath =
@@ -15,6 +44,7 @@ export async function middleware(req: NextRequest) {
     pathname === "/mfa-verify" ||
     pathname === "/forgot-password" ||
     pathname === "/reset-password" ||
+    pathname === "/maintenance" ||
     pathname === "/privacy" ||
     pathname === "/terms" ||
     pathname.startsWith("/api/") ||

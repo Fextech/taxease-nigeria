@@ -1,20 +1,6 @@
 import { adminProcedure, router, superAdminProcedure } from '../../trpc/trpc.js';
 import { z } from 'zod';
-import { Queue } from 'bullmq';
 import { S3Client, HeadBucketCommand } from '@aws-sdk/client-s3';
-
-const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
-const parsedUrl = new URL(REDIS_URL);
-const redisConnection = {
-    host: parsedUrl.hostname,
-    port: Number(parsedUrl.port) || 6379,
-    password: parsedUrl.password || undefined,
-    tls: REDIS_URL.startsWith('rediss://') ? {} : undefined,
-    maxRetriesPerRequest: null,
-    enableReadyCheck: false,
-};
-
-const parseQueue = new Queue('parse-statement', { connection: redisConnection });
 
 const s3 = new S3Client({
     region: process.env.AWS_REGION || 'af-south-1',
@@ -24,7 +10,11 @@ const s3 = new S3Client({
     },
 });
 
-async function pingUrl(url: string, method = 'GET', headers?: Record<string, string>): Promise<{ status: string, ping: number }> {
+async function pingUrl(
+    url: string,
+    method = 'GET',
+    headers?: Record<string, string>
+): Promise<{ status: string; ping: number }> {
     const start = Date.now();
     try {
         const res = await fetch(url, { method, headers, signal: AbortSignal.timeout(10000) });
@@ -50,14 +40,13 @@ export const adminSystemRouter = router({
             statuses.push({ id: 'db', name: 'PostgreSQL Db', status: 'down', ping: Date.now() - dbStart, type: 'infrastructure' });
         }
 
-        // 2. Redis — ping via BullMQ client
-        const redisStart = Date.now();
-        try {
-            const client = await parseQueue.client;
-            await client.ping();
-            statuses.push({ id: 'redis', name: 'Redis Cache', status: 'operational', ping: Date.now() - redisStart, type: 'infrastructure' });
-        } catch {
-            statuses.push({ id: 'redis', name: 'Redis Cache', status: 'down', ping: Date.now() - redisStart, type: 'infrastructure' });
+        // 2. Worker health check
+        const workerUrl = process.env.WORKER_URL;
+        if (workerUrl) {
+            const workerPing = await pingUrl(`${workerUrl}/health`);
+            statuses.push({ id: 'worker', name: 'Worker Service', status: workerPing.status, ping: workerPing.ping, type: 'infrastructure' });
+        } else {
+            statuses.push({ id: 'worker', name: 'Worker Service', status: 'unknown', ping: 0, type: 'infrastructure' });
         }
 
         // 3. AWS S3
@@ -80,7 +69,9 @@ export const adminSystemRouter = router({
         statuses.push({ id: 'parser', name: 'Python Parser', status: parserPing.status, ping: parserPing.ping, type: 'core' });
 
         // 5. Paystack API
-        const paystackPing = await pingUrl('https://api.paystack.co/transaction', 'GET', { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` });
+        const paystackPing = await pingUrl('https://api.paystack.co/transaction', 'GET', {
+            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+        });
         statuses.push({ id: 'paystack', name: 'Paystack API', status: paystackPing.status, ping: paystackPing.ping, type: 'external' });
 
         // 6. Resend
@@ -90,24 +81,30 @@ export const adminSystemRouter = router({
         return statuses;
     }),
 
-    getJobQueueStats: adminProcedure.query(async () => {
-        const [active, completed, failed, delayed, waiting] = await Promise.all([
-            parseQueue.getActiveCount(),
-            parseQueue.getCompletedCount(),
-            parseQueue.getFailedCount(),
-            parseQueue.getDelayedCount(),
-            parseQueue.getWaitingCount(),
+    /**
+     * Processing statistics derived from statement status counts.
+     * active    = PROCESSING
+     * completed = READY
+     * failed    = ERROR
+     * waiting   = UPLOADED (queued but not yet picked up)
+     */
+    getJobQueueStats: adminProcedure.query(async ({ ctx }) => {
+        const [processing, ready, error, uploaded] = await Promise.all([
+            ctx.prisma.statement.count({ where: { parseStatus: 'PROCESSING', deletedAt: null } }),
+            ctx.prisma.statement.count({ where: { parseStatus: 'READY', deletedAt: null } }),
+            ctx.prisma.statement.count({ where: { parseStatus: 'ERROR', deletedAt: null } }),
+            ctx.prisma.statement.count({ where: { parseStatus: 'UPLOADED', deletedAt: null } }),
         ]);
 
-        const total = active + completed + failed + delayed + waiting;
-        const progressPercent = total === 0 ? 100 : Math.round((completed / total) * 100);
+        const total = processing + ready + error + uploaded;
+        const progressPercent = total === 0 ? 100 : Math.round((ready / total) * 100);
 
         return {
-            active,
-            completed,
-            failed,
-            delayed,
-            waiting,
+            active: processing,
+            completed: ready,
+            failed: error,
+            delayed: 0,
+            waiting: uploaded,
             progressPercent,
         };
     }),
@@ -117,10 +114,10 @@ export const adminSystemRouter = router({
             where: { parseStatus: 'ERROR' },
             orderBy: { updatedAt: 'desc' },
             take: 5,
-            select: { id: true, errorMessage: true, updatedAt: true, originalFilename: true }
+            select: { id: true, errorMessage: true, updatedAt: true, originalFilename: true },
         });
 
-        return errStatements.map(err => ({
+        return errStatements.map((err) => ({
             id: err.id,
             service: 'Python Parser',
             message: err.errorMessage || `Failed parsing ${err.originalFilename}`,
@@ -129,16 +126,48 @@ export const adminSystemRouter = router({
     }),
 
     getDeploymentInfo: adminProcedure.query(async () => {
+        // Cloud Run sets K_REVISION; fall back to a default
+        const revision = process.env.K_REVISION || 'v1.4.2';
         return {
-            version: process.env.RAILWAY_GIT_COMMIT_SHA ? process.env.RAILWAY_GIT_COMMIT_SHA.substring(0, 7) : 'v1.4.2',
-            commitHash: process.env.RAILWAY_GIT_COMMIT_SHA ? process.env.RAILWAY_GIT_COMMIT_SHA.substring(0, 7) : 'a83b9c2',
+            version: revision,
+            commitHash: revision,
             lastDeployed: new Date().toISOString(),
-            environment: process.env.NODE_ENV || 'production'
+            environment: process.env.NODE_ENV || 'production',
         };
     }),
 
-    flushQueue: superAdminProcedure.mutation(async () => {
-        await parseQueue.clean(0, 1000, 'failed');
-        return { success: true };
-    })
+    /**
+     * Requeue failed statements through Cloud Tasks. Updating a database status
+     * alone cannot create a new Cloud Task, so each retry must be dispatched.
+     */
+    flushQueue: superAdminProcedure.mutation(async ({ ctx }) => {
+        const failedStatements = await ctx.prisma.statement.findMany({
+            where: { parseStatus: 'ERROR', deletedAt: null },
+            select: { id: true },
+        });
+
+        let queued = 0;
+        let failed = 0;
+        for (const statement of failedStatements) {
+            await ctx.prisma.statement.update({
+                where: { id: statement.id },
+                data: { parseStatus: 'UPLOADED', errorMessage: null },
+            });
+            try {
+                const { enqueueParseJob } = await import('../../services/queue.service.js');
+                await enqueueParseJob(statement.id);
+                queued += 1;
+            } catch (error) {
+                failed += 1;
+                await ctx.prisma.statement.update({
+                    where: { id: statement.id },
+                    data: {
+                        parseStatus: 'ERROR',
+                        errorMessage: `Failed to requeue: ${error instanceof Error ? error.message : String(error)}`,
+                    },
+                });
+            }
+        }
+        return { success: failed === 0, reset: queued, failed };
+    }),
 });

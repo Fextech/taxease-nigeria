@@ -100,16 +100,32 @@ export default function AnnotationsPage() {
   const { activeWorkspaceId } = useWorkspace();
 
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
+  const [unannotatedTxns, setUnannotatedTxns] = useState<TransactionRow[]>([]);
+  const [unannotatedTotal, setUnannotatedTotal] = useState(0);
+  const [unannotatedNeedsPagination, setUnannotatedNeedsPagination] = useState(false);
+  const [unannotatedPage, setUnannotatedPage] = useState(1);
   const [stats, setStats] = useState<Stats | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("all");
   const [txnTypeFilter, setTxnTypeFilter] = useState<TxnTypeFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedTxn, setSelectedTxn] = useState<TransactionRow | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [unannotatedLoading, setUnannotatedLoading] = useState(false);
   const [pendingSaveIds, setPendingSaveIds] = useState<Record<string, true>>({});
   const [currentPage, setCurrentPage] = useState(1);
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
-  const [confirmDeleteMonth, setConfirmDeleteMonth] = useState<number | null>(null); // monthIndex pending delete
+
+  // Month filtering state
+  const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
+
+  // Multi-select state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState<TaxableStatus>("YES");
+  const [bulkExpenseStatus, setBulkExpenseStatus] = useState<ExpenseStatus>("OTHER");
+  const [bulkCategory, setBulkCategory] = useState<TaxCategory>("UNCLASSIFIED");
+  const [bulkReason, setBulkReason] = useState("");
 
   // Annotation form state
   const [formStatus, setFormStatus] = useState<TaxableStatus>("YES");
@@ -131,13 +147,13 @@ export default function AnnotationsPage() {
     }
   }, []);
 
-  const loadTransactions = useCallback(async (wsId: string, page: number) => {
+  const loadTransactions = useCallback(async (wsId: string, page: number, months: number[] = []) => {
     setLoading(true);
     try {
       const txRes = await fetch("/api/annotations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "list", workspaceId: wsId, page, pageSize: PAGE_SIZE }),
+        body: JSON.stringify({ action: "list", workspaceId: wsId, page, pageSize: PAGE_SIZE, months }),
       });
 
       if (txRes.ok) {
@@ -153,24 +169,67 @@ export default function AnnotationsPage() {
     }
   }, []);
 
+  const loadUnannotated = useCallback(async (wsId: string, page: number, months: number[] = []) => {
+    setUnannotatedLoading(true);
+    try {
+      const res = await fetch("/api/annotations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "listUnannotated", workspaceId: wsId, page, months }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUnannotatedTxns(Array.isArray(data.items) ? data.items : []);
+        setUnannotatedTotal(data.totalCount ?? 0);
+        setUnannotatedNeedsPagination(Boolean(data.needsPagination));
+      } else {
+        setUnannotatedTxns([]);
+      }
+    } catch {
+      setUnannotatedTxns([]);
+    } finally {
+      setUnannotatedLoading(false);
+    }
+  }, []);
+
   // Load workspace
   useEffect(() => {
     if (activeWorkspaceId) {
       setCurrentPage(1);
+      setUnannotatedPage(1);
       setSelectedTxn(null);
       setPanelOpen(false);
+      setSelectedIds(new Set());
+      setSelectedMonths([]);
       void loadStats(activeWorkspaceId);
     } else {
       setTransactions([]);
+      setUnannotatedTxns([]);
       setStats(null);
     }
   }, [activeWorkspaceId, loadStats]);
 
   useEffect(() => {
     if (activeWorkspaceId) {
-      void loadTransactions(activeWorkspaceId, currentPage);
+      void loadTransactions(activeWorkspaceId, currentPage, selectedMonths);
     }
-  }, [activeWorkspaceId, currentPage, loadTransactions]);
+  }, [activeWorkspaceId, currentPage, selectedMonths, loadTransactions]);
+
+  useEffect(() => {
+    if (activeWorkspaceId && activeTab === "unannotated") {
+      void loadUnannotated(activeWorkspaceId, unannotatedPage, selectedMonths);
+    }
+  }, [activeWorkspaceId, activeTab, unannotatedPage, selectedMonths, loadUnannotated]);
+
+  // When selectedMonths changes, reset pagination and selection
+  useEffect(() => {
+    setCurrentPage(1);
+    setUnannotatedPage(1);
+    setSelectedIds(new Set());
+  }, [selectedMonths]);
+
+  // Clear selection when tab changes
+  useEffect(() => { setSelectedIds(new Set()); }, [activeTab]);
 
 
 
@@ -266,6 +325,7 @@ export default function AnnotationsPage() {
   const handleSave = async (status: AnnotationStatusType = "COMPLETE") => {
     if (!selectedTxn || !activeWorkspaceId) return;
     const previousTransactions = transactions;
+    const previousUnannotatedTxns = unannotatedTxns;
     const previousStats = stats;
     const previousSelectedTxn = selectedTxn;
     const previousPanelState = panelOpen;
@@ -283,6 +343,14 @@ export default function AnnotationsPage() {
     );
 
     setTransactions(optimisticTransactions);
+
+    // Also update the unannotated list — remove the just-annotated transaction
+    // from it immediately so the row disappears without waiting for a refresh.
+    if (status === "COMPLETE" || status === "IN_PROGRESS") {
+      setUnannotatedTxns((prev) => prev.filter((t) => t.id !== selectedTxn.id));
+      setUnannotatedTotal((prev) => Math.max(0, prev - 1));
+    }
+
     setStats((currentStats) => applyOptimisticStats(currentStats, selectedTxn, optimisticAnnotation));
     setPendingSaveIds((current) => ({ ...current, [selectedTxn.id]: true }));
 
@@ -341,6 +409,7 @@ export default function AnnotationsPage() {
       }
     } catch {
       setTransactions(previousTransactions);
+      setUnannotatedTxns(previousUnannotatedTxns);
       setStats(previousStats);
       setSelectedTxn(previousSelectedTxn);
       setPanelOpen(previousPanelState);
@@ -353,18 +422,101 @@ export default function AnnotationsPage() {
     }
   };
 
-  // Filter transactions based on active tab AND type filter
-  const filtered = transactions.filter((t) => {
-    // Tab filter
-    if (activeTab === "unannotated" && isCompleteAnnotation(t.annotation)) return false;
+  // Multi-select helpers
+  const visibleRows = activeTab === "unannotated" ? unannotatedTxns : transactions.filter((t) => {
     if (activeTab === "completed" && !isCompleteAnnotation(t.annotation)) return false;
-
-    // Credit / Debit type filter
     if (txnTypeFilter === "credit" && isDebitTxn(t)) return false;
     if (txnTypeFilter === "debit" && !isDebitTxn(t)) return false;
-
     return true;
   });
+
+  // Live search filter — applied after all other filters
+  const searchLower = searchQuery.toLowerCase();
+  const filteredRows = searchLower
+    ? (activeTab === "unannotated" ? unannotatedTxns : visibleRows).filter((t) =>
+        t.description.toLowerCase().includes(searchLower)
+      )
+    : activeTab === "unannotated" ? unannotatedTxns : visibleRows;
+
+  // The type of already-selected transactions (debit or credit)
+  const selectionType: "debit" | "credit" | null = (() => {
+    if (selectedIds.size === 0) return null;
+    const first = visibleRows.find((t) => selectedIds.has(t.id));
+    if (!first) return null;
+    return isDebitTxn(first) ? "debit" : "credit";
+  })();
+
+  const canSelect = (t: TransactionRow) => {
+    if (selectedIds.size === 0) return true;
+    const tType = isDebitTxn(t) ? "debit" : "credit";
+    return tType === selectionType;
+  };
+
+  const toggleSelect = (t: TransactionRow, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!canSelect(t) && !selectedIds.has(t.id)) return;
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(t.id)) next.delete(t.id);
+      else next.add(t.id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const selectableIds = visibleRows.filter(canSelect).map((t) => t.id);
+    if (selectedIds.size === selectableIds.length && selectableIds.every((id) => selectedIds.has(id))) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(selectableIds));
+    }
+  };
+
+  const handleBulkAnnotate = async () => {
+    if (!activeWorkspaceId || selectedIds.size === 0) return;
+    const ids = [...selectedIds];
+    const isBulkDebit = selectionType === "debit";
+    const taxableStatus: TaxableStatus = isBulkDebit
+      ? (bulkExpenseStatus === "DBE" ? "YES" : "NO")
+      : bulkStatus;
+
+    setBulkLoading(true);
+    try {
+      const res = await fetch("/api/annotations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "bulkUpsert",
+          transactionIds: ids,
+          taxableStatus,
+          taxCategory: isBulkDebit ? "UNCLASSIFIED" : bulkCategory,
+          reason: bulkReason || undefined,
+        }),
+      });
+      const result = await res.json();
+      if (res.ok) {
+        setToast({ message: `${result.updated} transaction${result.updated !== 1 ? "s" : ""} annotated successfully.`, type: "success" });
+        setTimeout(() => setToast(null), 4000);
+        setSelectedIds(new Set());
+        await Promise.all([
+          loadTransactions(activeWorkspaceId, currentPage),
+          loadStats(activeWorkspaceId),
+          ...(activeTab === "unannotated" ? [loadUnannotated(activeWorkspaceId, unannotatedPage)] : []),
+        ]);
+      } else {
+        setToast({ message: result.error || "Bulk annotation failed.", type: "error" });
+        setTimeout(() => setToast(null), 5000);
+      }
+    } catch {
+      setToast({ message: "Something went wrong.", type: "error" });
+      setTimeout(() => setToast(null), 5000);
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  // Filtered list for all/completed tabs (unannotated uses its own state)
+  const filtered = filteredRows;
 
   const totalCount = stats?.totalTransactions ?? transactions.length;
   const annotatedCount = stats?.annotatedTransactions ?? 0;
@@ -376,6 +528,7 @@ export default function AnnotationsPage() {
   // Per-month transaction counts
   const monthTxnCounts = MONTHS.map((_, i) => stats?.monthCounts?.[i + 1] ?? 0);
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  const unannotatedTotalPages = Math.max(1, Math.ceil(unannotatedTotal / 50));
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -383,44 +536,13 @@ export default function AnnotationsPage() {
     }
   }, [currentPage, totalPages]);
 
-  // Delete all transactions for a specific month
-  const handleDeleteMonth = (monthIndex: number) => {
-    const count = monthTxnCounts[monthIndex];
-    if (count === 0) return;
-    setConfirmDeleteMonth(monthIndex);
-  };
-
-  const confirmDeleteMonthAction = async () => {
-    if (confirmDeleteMonth === null || !activeWorkspaceId) return;
-    const monthIndex = confirmDeleteMonth;
-    const monthName = MONTHS[monthIndex];
-    const count = monthTxnCounts[monthIndex];
-    setConfirmDeleteMonth(null);
-    try {
-      const res = await fetch("/api/annotations", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "deleteByMonth",
-          workspaceId: activeWorkspaceId,
-          month: monthIndex + 1,
-        }),
-      });
-      if (res.ok) {
-        setToast({ message: `Cleared ${count} transaction${count !== 1 ? "s" : ""} for ${monthName}.`, type: "success" });
-        setTimeout(() => setToast(null), 4000);
-        await Promise.all([
-          loadTransactions(activeWorkspaceId, currentPage),
-          loadStats(activeWorkspaceId),
-        ]);
-      } else {
-        setToast({ message: `Failed to clear ${monthName} transactions. Please try again.`, type: "error" });
-        setTimeout(() => setToast(null), 5000);
-      }
-    } catch {
-      setToast({ message: "Something went wrong. Please try again.", type: "error" });
-      setTimeout(() => setToast(null), 5000);
-    }
+  // Toggle month filter
+  const handleToggleMonthFilter = (monthIndex: number) => {
+    // Month is 1-indexed for the API (1 = Jan, 12 = Dec)
+    const month = monthIndex + 1;
+    setSelectedMonths((prev) =>
+      prev.includes(month) ? prev.filter((m) => m !== month) : [...prev, month]
+    );
   };
 
   return (
@@ -457,30 +579,7 @@ export default function AnnotationsPage() {
         </div>
       )}
 
-      {/* Delete Month Confirmation Modal */}
-      {confirmDeleteMonth !== null && (
-        <div className="modal-overlay">
-          <div className="modal-card" style={{ maxWidth: 420 }}>
-            <div className="modal-header">
-              <span className="material-symbols-outlined" style={{ fontSize: 22, color: "var(--te-error, #ef4444)" }}>delete_sweep</span>
-              <h3 className="modal-title">Clear {MONTHS[confirmDeleteMonth]} Transactions</h3>
-            </div>
-            <p className="modal-desc">
-              You are about to clear all <strong>{monthTxnCounts[confirmDeleteMonth]}</strong> transaction entries for <strong>{MONTHS[confirmDeleteMonth]}</strong>. This cannot be undone.
-            </p>
-            <div className="modal-actions">
-              <button className="modal-btn-cancel" onClick={() => setConfirmDeleteMonth(null)}>Cancel</button>
-              <button
-                className="modal-btn-confirm"
-                style={{ background: "var(--te-error, #ef4444)" }}
-                onClick={confirmDeleteMonthAction}
-              >
-                Clear Transactions
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+
       <div className="annotations-page">
         <div className="annotations-main">
           {/* Stat Cards */}
@@ -519,27 +618,38 @@ export default function AnnotationsPage() {
 
           {/* Monthly Summary Cards */}
           <div className="month-cards-row">
-            {MONTHS.map((m, i) => (
-              <div key={m} className="month-card">
-                <span className="month-card-name">{m}</span>
-                <span className="month-card-count">{monthTxnCounts[i]} txns</span>
-                {monthTxnCounts[i] > 0 && (
-                  <button
-                    className="month-card-delete"
-                    onClick={() => handleDeleteMonth(i)}
-                    title={`Clear ${m} transactions`}
-                  >
-                    <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
-                  </button>
-                )}
-              </div>
-            ))}
+            {MONTHS.map((m, i) => {
+              const monthNum = i + 1;
+              const isSelected = selectedMonths.includes(monthNum);
+              return (
+                <div 
+                  key={m} 
+                  className="month-card" 
+                  style={isSelected ? { borderColor: "var(--te-accent)", backgroundColor: "#fef3c7", cursor: "pointer" } : { cursor: "pointer" }}
+                  onClick={() => handleToggleMonthFilter(i)}
+                >
+                  <span className="month-card-name" style={isSelected ? { color: "var(--te-accent)" } : {}}>{m}</span>
+                  <span className="month-card-count">{monthTxnCounts[i]} txns</span>
+                  {monthTxnCounts[i] > 0 && (
+                    <button
+                      className="month-card-delete"
+                      style={{ color: isSelected ? "var(--te-accent)" : "#9ca3af" }}
+                      title={`${isSelected ? 'Remove filter for' : 'Filter by'} ${m}`}
+                      onClick={(e) => { e.stopPropagation(); handleToggleMonthFilter(i); }}
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>filter_list</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           {/* Transaction Table */}
           <div className="txn-panel">
             <div className="txn-header-bar">
-              <div className="txn-tabs">
+              <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+                <div className="txn-tabs">
                 {([
                   { key: "all" as Tab, label: "All Transactions", count: totalCount },
                   { key: "unannotated" as Tab, label: "Unannotated", count: pendingCount },
@@ -548,26 +658,184 @@ export default function AnnotationsPage() {
                   <button
                     key={t.key}
                     className={`txn-tab ${activeTab === t.key ? "txn-tab--active" : ""}`}
-                    onClick={() => setActiveTab(t.key)}
+                    onClick={() => { setActiveTab(t.key); setSelectedIds(new Set()); }}
                   >
                     {t.label} <span className="tab-count">{t.count}</span>
                   </button>
                 ))}
               </div>
-
-              {/* Credit / Debit filter */}
-              <div className="type-filter">
-                {(["all", "credit", "debit"] as TxnTypeFilter[]).map((f) => (
-                  <button
-                    key={f}
-                    className={`type-filter-btn ${txnTypeFilter === f ? "type-filter-btn--active" : ""}`}
-                    onClick={() => setTxnTypeFilter(f)}
-                  >
-                    {f === "all" ? "All" : f === "credit" ? "Credit" : "Debit"}
-                  </button>
-                ))}
-              </div>
+              
+              {/* Clear Filter Button */}
+              {selectedMonths.length > 0 && (
+                <button
+                  onClick={() => setSelectedMonths([])}
+                  style={{
+                    padding: "4px 12px",
+                    fontSize: "13px",
+                    background: "rgba(239, 68, 68, 0.1)",
+                    color: "#ef4444",
+                    border: "1px solid rgba(239, 68, 68, 0.2)",
+                    borderRadius: "16px",
+                    cursor: "pointer",
+                    fontWeight: 500,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "4px"
+                  }}
+                >
+                  Clear Filter <span className="material-symbols-outlined" style={{ fontSize: 14 }}>close</span>
+                </button>
+              )}
             </div>
+
+              {/* Search bar */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, maxWidth: 320 }}>
+                <div style={{ position: "relative", width: "100%" }}>
+                  <span
+                    className="material-symbols-outlined"
+                    style={{
+                      position: "absolute",
+                      left: 10,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      fontSize: 16,
+                      color: "var(--te-text-muted, #94a3b8)",
+                      pointerEvents: "none",
+                    }}
+                  >
+                    search
+                  </span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search description…"
+                    style={{
+                      width: "100%",
+                      paddingLeft: 32,
+                      paddingRight: searchQuery ? 32 : 12,
+                      paddingTop: 6,
+                      paddingBottom: 6,
+                      fontSize: 13,
+                      border: "1px solid rgba(15,23,42,0.12)",
+                      borderRadius: 8,
+                      background: "var(--te-surface, #fff)",
+                      color: "var(--te-text, #0f172a)",
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery("")}
+                      style={{
+                        position: "absolute",
+                        right: 8,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        background: "none",
+                        border: "none",
+                        cursor: "pointer",
+                        padding: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        color: "var(--te-text-muted, #94a3b8)",
+                      }}
+                      title="Clear search"
+                    >
+                      <span className="material-symbols-outlined" style={{ fontSize: 16 }}>close</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Credit / Debit filter — hidden on unannotated tab (filtered server-side) */}
+              {activeTab !== "unannotated" && (
+                <div className="type-filter">
+                  {(["all", "credit", "debit"] as TxnTypeFilter[]).map((f) => (
+                    <button
+                      key={f}
+                      className={`type-filter-btn ${txnTypeFilter === f ? "type-filter-btn--active" : ""}`}
+                      onClick={() => setTxnTypeFilter(f)}
+                    >
+                      {f === "all" ? "All" : f === "credit" ? "Credit" : "Debit"}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Bulk annotation bar — shown when items are selected */}
+            {selectedIds.size > 0 && (
+              <div style={{
+                display: "flex", flexWrap: "wrap", gap: 12, alignItems: "center",
+                padding: "12px 18px", background: "rgba(227,159,81,0.08)",
+                borderBottom: "1px solid rgba(227,159,81,0.2)",
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: "var(--te-accent)" }}>
+                  {selectedIds.size} {selectionType ?? ""} transaction{selectedIds.size !== 1 ? "s" : ""} selected
+                </span>
+
+                {selectionType === "credit" ? (
+                  <>
+                    <select
+                      className="anno-panel-select"
+                      style={{ fontSize: 13, padding: "4px 10px", width: "auto" }}
+                      value={bulkStatus}
+                      onChange={(e) => setBulkStatus(e.target.value as TaxableStatus)}
+                    >
+                      <option value="YES">Taxable — Yes</option>
+                      <option value="NO">Taxable — No</option>
+                    </select>
+                    <select
+                      className="anno-panel-select"
+                      style={{ fontSize: 13, padding: "4px 10px", width: "auto" }}
+                      value={bulkCategory}
+                      onChange={(e) => setBulkCategory(e.target.value as TaxCategory)}
+                    >
+                      {TAX_CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+                    </select>
+                  </>
+                ) : (
+                  <select
+                    className="anno-panel-select"
+                    style={{ fontSize: 13, padding: "4px 10px", width: "auto" }}
+                    value={bulkExpenseStatus}
+                    onChange={(e) => setBulkExpenseStatus(e.target.value as ExpenseStatus)}
+                  >
+                    <option value="OTHER">Other Expenses</option>
+                    <option value="DBE">Direct Business Expense</option>
+                  </select>
+                )}
+
+                <input
+                  className="settings-input"
+                  style={{ fontSize: 13, padding: "4px 10px", width: 200 }}
+                  placeholder="Reason (optional)"
+                  value={bulkReason}
+                  onChange={(e) => setBulkReason(e.target.value)}
+                />
+
+                <button
+                  className="anno-complete-btn"
+                  style={{ padding: "6px 16px", fontSize: 13 }}
+                  disabled={bulkLoading}
+                  onClick={handleBulkAnnotate}
+                >
+                  <span className="material-symbols-outlined" style={{ fontSize: 14 }}>check</span>
+                  {bulkLoading ? "Saving..." : "Complete Annotation"}
+                </button>
+
+                <button
+                  className="anno-secondary-btn"
+                  style={{ fontSize: 13, padding: "6px 14px" }}
+                  onClick={() => setSelectedIds(new Set())}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
             <div className="txn-list">
               {!activeWorkspaceId ? (
                 <div className="anno-empty-state">
@@ -577,15 +845,10 @@ export default function AnnotationsPage() {
                   <h3 className="anno-empty-title">Select a Tax Year</h3>
                   <p className="anno-empty-desc">Please select or create a Tax Year to view transactions.</p>
                 </div>
-              ) : loading ? (
+              ) : (activeTab === "unannotated" ? unannotatedLoading : loading) ? (
                 <div className="anno-empty-state">
                   <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-                    <span
-                      className="material-symbols-outlined status-spin"
-                      style={{ fontSize: 40, color: "var(--te-primary)" }}
-                    >
-                      progress_activity
-                    </span>
+                    <span className="material-symbols-outlined status-spin" style={{ fontSize: 40, color: "var(--te-primary)" }}>progress_activity</span>
                     <p className="anno-empty-desc" style={{ margin: 0 }}>Loading transactions…</p>
                   </div>
                 </div>
@@ -601,76 +864,98 @@ export default function AnnotationsPage() {
                 </div>
               ) : (
                 <>
-                  <table className="anno-table">
-                    <thead>
-                      <tr>
-                        <th style={{ width: 32 }}></th>
-                        <th>Date</th>
-                        <th>Description</th>
-                        <th>Credit/Debit</th>
-                        <th>Taxable?</th>
-                        <th>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filtered.map((t) => {
-                        const isCredit = BigInt(t.creditAmount) > 0n;
-                        const amount = isCredit ? t.creditAmount : t.debitAmount;
-                        const annStatus = t.annotation?.status || "UNANNOTATED";
-                        const isTaxable = t.annotation?.taxableStatus === "YES";
+                  {/* Frozen-header table: header is sticky, only tbody scrolls */}
+                  <div style={{ overflowX: "auto" }}>
+                    <table className="anno-table" style={{ tableLayout: "fixed", width: "100%" }}>
+                      <thead style={{ position: "sticky", top: 0, zIndex: 2, background: "var(--te-surface, #fff)" }}>
+                        <tr>
+                          <th style={{ width: 40 }}>
+                            <input
+                              type="checkbox"
+                              className="anno-checkbox"
+                              checked={selectedIds.size > 0 && filtered.filter(canSelect).every((t) => selectedIds.has(t.id))}
+                              onChange={toggleSelectAll}
+                              title="Select all"
+                            />
+                          </th>
+                          <th style={{ width: 110 }}>Date</th>
+                          <th>Description</th>
+                          <th style={{ width: 140 }}>Credit/Debit</th>
+                          <th style={{ width: 90 }}>Taxable?</th>
+                          <th style={{ width: 120 }}>Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {filtered.map((t) => {
+                          const isCredit = BigInt(t.creditAmount) > 0n;
+                          const amount = isCredit ? t.creditAmount : t.debitAmount;
+                          const annStatus = t.annotation?.status || "UNANNOTATED";
+                          const isTaxable = t.annotation?.taxableStatus === "YES";
+                          const isChecked = selectedIds.has(t.id);
+                          const isDisabled = !canSelect(t) && !isChecked;
 
-                        return (
-                          <tr
-                            key={t.id}
-                            className={`anno-row ${selectedTxn?.id === t.id ? "anno-row--selected" : ""}`}
-                            onClick={() => { setSelectedTxn(t); setPanelOpen(true); }}
-                          >
-                            <td>
-                              <input type="checkbox" className="anno-checkbox" readOnly checked={selectedTxn?.id === t.id} />
-                            </td>
-                            <td className="anno-date">{formatDate(t.transactionDate)}</td>
-                            <td>
-                              <span className="anno-desc">{t.description}</span>
-                              {t.channel && <span className="anno-subdesc">{t.channel}</span>}
-                            </td>
-                            <td className={isCredit ? "anno-credit" : "anno-debit"}>
-                              {isCredit ? "" : "-"}{formatKobo(amount)}
-                            </td>
-                            <td>
-                              <div className={`taxable-toggle ${isTaxable ? "taxable-toggle--on" : ""}`}>
-                                <div className="taxable-toggle-dot" />
-                              </div>
-                            </td>
-                            <td>
-                              <span className={`anno-status anno-status--${annStatus.toLowerCase()}`}>{annStatus}</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  {totalPages > 1 && (
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderTop: "1px solid rgba(15, 23, 42, 0.08)" }}>
-                      <span style={{ fontSize: 13, color: "var(--te-text-muted)" }}>
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button
-                          className="anno-secondary-btn"
-                          disabled={currentPage === 1 || loading}
-                          onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
-                        >
-                          Previous
-                        </button>
-                        <button
-                          className="anno-secondary-btn"
-                          disabled={currentPage >= totalPages || loading}
-                          onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
-                        >
-                          Next
-                        </button>
+                          return (
+                            <tr
+                              key={t.id}
+                              className={`anno-row ${selectedTxn?.id === t.id ? "anno-row--selected" : ""} ${isChecked ? "anno-row--checked" : ""}`}
+                              onClick={() => { setSelectedTxn(t); setPanelOpen(true); }}
+                            >
+                              <td onClick={(e) => toggleSelect(t, e)} style={{ cursor: isDisabled ? "not-allowed" : "pointer" }}>
+                                <input
+                                  type="checkbox"
+                                  className="anno-checkbox"
+                                  checked={isChecked}
+                                  disabled={isDisabled}
+                                  onChange={() => {}}
+                                  title={isDisabled ? `Can only select ${selectionType} transactions together` : ""}
+                                />
+                              </td>
+                              <td className="anno-date">{formatDate(t.transactionDate)}</td>
+                              <td>
+                                <span className="anno-desc">{t.description}</span>
+                                {t.channel && <span className="anno-subdesc">{t.channel}</span>}
+                              </td>
+                              <td className={isCredit ? "anno-credit" : "anno-debit"}>
+                                {isCredit ? "" : "-"}{formatKobo(amount)}
+                              </td>
+                              <td>
+                                <div className={`taxable-toggle ${isTaxable ? "taxable-toggle--on" : ""}`}>
+                                  <div className="taxable-toggle-dot" />
+                                </div>
+                              </td>
+                              <td>
+                                <span className={`anno-status anno-status--${annStatus.toLowerCase()}`}>{annStatus}</span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Pagination — regular tabs use server-side page; unannotated only shows if >50 */}
+                  {activeTab === "unannotated" ? (
+                    unannotatedNeedsPagination && (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderTop: "1px solid rgba(15,23,42,0.08)" }}>
+                        <span style={{ fontSize: 13, color: "var(--te-text-muted)" }}>
+                          Page {unannotatedPage} of {unannotatedTotalPages} · {unannotatedTotal} unannotated
+                        </span>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button className="anno-secondary-btn" disabled={unannotatedPage === 1 || unannotatedLoading} onClick={() => setUnannotatedPage((p) => Math.max(1, p - 1))}>Previous</button>
+                          <button className="anno-secondary-btn" disabled={unannotatedPage >= unannotatedTotalPages || unannotatedLoading} onClick={() => setUnannotatedPage((p) => Math.min(unannotatedTotalPages, p + 1))}>Next</button>
+                        </div>
                       </div>
-                    </div>
+                    )
+                  ) : (
+                    totalPages > 1 && (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderTop: "1px solid rgba(15,23,42,0.08)" }}>
+                        <span style={{ fontSize: 13, color: "var(--te-text-muted)" }}>Page {currentPage} of {totalPages}</span>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button className="anno-secondary-btn" disabled={currentPage === 1 || loading} onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}>Previous</button>
+                          <button className="anno-secondary-btn" disabled={currentPage >= totalPages || loading} onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}>Next</button>
+                        </div>
+                      </div>
+                    )
                   )}
                 </>
             )}
