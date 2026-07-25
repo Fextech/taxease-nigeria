@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     if (!session?.user?.id) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    const userId = session.user.id;
 
     const body = await request.json();
     const { action, ...data } = body;
@@ -62,11 +63,79 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace is locked' }, { status: 403 });
             }
 
+            // Earlier releases soft-deleted statements. Purge only the legacy
+            // rows that would prevent this requested month or exact file from
+            // being uploaded again. This makes the policy change useful for
+            // people who deleted a failed statement before this release.
+            const legacyDeletedStatements = await prisma.statement.findMany({
+                where: {
+                    workspaceId: data.workspaceId,
+                    deletedAt: { not: null },
+                    OR: [
+                        { month: data.month },
+                        ...(data.fileHash ? [{ fileHash: data.fileHash }] : []),
+                    ],
+                },
+                select: {
+                    id: true,
+                    s3Key: true,
+                    month: true,
+                    bankName: true,
+                    originalFilename: true,
+                    parseStatus: true,
+                    rowCount: true,
+                },
+            });
+
+            if (legacyDeletedStatements.length > 0) {
+                try {
+                    await Promise.all(legacyDeletedStatements.map((statement) =>
+                        s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: statement.s3Key }))
+                    ));
+                } catch (s3Err) {
+                    console.error('[statements/upload] Legacy S3 delete failed:', s3Err);
+                    return NextResponse.json(
+                        { error: 'Unable to clear a previously deleted statement. Please retry shortly.' },
+                        { status: 502 }
+                    );
+                }
+
+                await prisma.$transaction(async (tx) => {
+                    for (const statement of legacyDeletedStatements) {
+                        await tx.annotation.deleteMany({
+                            where: { transaction: { statementId: statement.id } },
+                        });
+                        await tx.transaction.deleteMany({ where: { statementId: statement.id } });
+                        await tx.statement.delete({ where: { id: statement.id } });
+                        await tx.auditLog.create({
+                            data: {
+                                userId,
+                                entityType: 'Statement',
+                                entityId: statement.id,
+                                action: 'DELETE',
+                                oldValue: {
+                                    month: statement.month,
+                                    filename: statement.originalFilename,
+                                    bankName: statement.bankName,
+                                    parseStatus: statement.parseStatus,
+                                    rowCount: statement.rowCount,
+                                },
+                                newValue: {
+                                    sourceObjectDeleted: true,
+                                    legacySoftDeletePurged: true,
+                                },
+                            },
+                        });
+                    }
+                });
+            }
+
             // Check how many statements already exist for this month
             const existingCount = await prisma.statement.count({
                 where: {
                     workspaceId: data.workspaceId,
                     month: data.month,
+                    deletedAt: null,
                 },
             });
 
@@ -83,6 +152,7 @@ export async function POST(request: Request) {
                 const duplicate = await prisma.statement.findFirst({
                     where: {
                         fileHash: data.fileHash,
+                        deletedAt: null,
                         workspace: { userId: session.user.id },
                     },
                 });
@@ -139,19 +209,36 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace not found' }, { status: 404 });
             }
 
-            // Create statement record
-            const statement = await prisma.statement.create({
-                data: {
-                    workspaceId: data.workspaceId,
-                    month: data.month,
-                    s3Key: data.s3Key,
-                    originalFilename: data.originalFilename,
-                    mimeType: data.mimeType,
-                    fileHash: data.fileHash || null,
-                    // The Cloud Tasks worker atomically claims UPLOADED jobs
-                    // before switching them to PROCESSING.
-                    parseStatus: 'UPLOADED',
-                },
+            // Keep a metadata-only upload event so the admin history remains
+            // useful even if the statement is later permanently deleted.
+            const statement = await prisma.$transaction(async (tx) => {
+                const createdStatement = await tx.statement.create({
+                    data: {
+                        workspaceId: data.workspaceId,
+                        month: data.month,
+                        s3Key: data.s3Key,
+                        originalFilename: data.originalFilename,
+                        mimeType: data.mimeType,
+                        fileHash: data.fileHash || null,
+                        // The Cloud Tasks worker atomically claims UPLOADED jobs
+                        // before switching them to PROCESSING.
+                        parseStatus: 'UPLOADED',
+                    },
+                });
+                await tx.auditLog.create({
+                    data: {
+                        userId,
+                        entityType: 'Statement',
+                        entityId: createdStatement.id,
+                        action: 'UPLOAD',
+                        newValue: {
+                            month: createdStatement.month,
+                            filename: createdStatement.originalFilename,
+                            parseStatus: createdStatement.parseStatus,
+                        },
+                    },
+                });
+                return createdStatement;
             });
 
             // Dispatch parse-statement Cloud Task
@@ -271,7 +358,9 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Workspace is locked' }, { status: 403 });
             }
 
-            // Delete file from S3
+            // Remove the source document before deleting its database record. S3
+            // deletes are idempotent, so a retry is safe if a network error made
+            // the outcome ambiguous.
             try {
                 await s3.send(new DeleteObjectCommand({
                     Bucket: BUCKET,
@@ -279,21 +368,43 @@ export async function POST(request: Request) {
                 }));
             } catch (s3Err) {
                 console.error('[statements/upload] S3 delete failed:', s3Err);
-                // Continue with DB deletion even if S3 fails
+                return NextResponse.json(
+                    { error: 'Unable to remove the statement file. Please retry shortly.' },
+                    { status: 502 }
+                );
             }
 
-            // Soft-delete cascade using standard Prisma updates (preserves records for audit trail)
-            await prisma.annotation.updateMany({
-                where: { transaction: { statementId: data.statementId } },
-                data: { deletedAt: new Date() }
-            });
-            await prisma.transaction.updateMany({
-                where: { statementId: data.statementId },
-                data: { deletedAt: new Date() }
-            });
-            await prisma.statement.update({
-                where: { id: data.statementId },
-                data: { deletedAt: new Date() }
+            // Statements are intentionally an exception to the general
+            // soft-delete policy: their PDF and all extracted data must be
+            // permanently removed so the month can be uploaded again. The
+            // audit event has no foreign key to the statement and therefore
+            // remains available to admins without retaining the document.
+            await prisma.$transaction(async (tx) => {
+                await tx.annotation.deleteMany({
+                    where: { transaction: { statementId: statement.id } },
+                });
+                await tx.transaction.deleteMany({
+                    where: { statementId: statement.id },
+                });
+                await tx.statement.delete({
+                    where: { id: statement.id },
+                });
+                await tx.auditLog.create({
+                    data: {
+                        userId,
+                        entityType: 'Statement',
+                        entityId: statement.id,
+                        action: 'DELETE',
+                        oldValue: {
+                            month: statement.month,
+                            filename: statement.originalFilename,
+                            bankName: statement.bankName,
+                            parseStatus: statement.parseStatus,
+                            rowCount: statement.rowCount,
+                        },
+                        newValue: { sourceObjectDeleted: true },
+                    },
+                });
             });
 
             return NextResponse.json({ success: true });

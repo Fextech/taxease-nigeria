@@ -112,6 +112,25 @@ def _strip_fences(value: str) -> str:
     return value.strip()
 
 
+def _safe_groq_error_detail(response: httpx.Response) -> str:
+    """Return only bounded provider metadata; never log a request or raw body."""
+    try:
+        payload = response.json()
+    except ValueError:
+        return "non-JSON error response"
+
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return "unstructured JSON error response"
+
+    safe_fields = {
+        field: str(error[field])[:240]
+        for field in ("message", "type", "code", "param")
+        if isinstance(error.get(field), (str, int, float, bool))
+    }
+    return json.dumps(safe_fields, ensure_ascii=True)[:500] or "structured error without safe details"
+
+
 def _validate_result(value: str) -> dict:
     try:
         return StatementSchema.model_validate_json(_strip_fences(value)).model_dump()
@@ -197,6 +216,10 @@ async def _extract_with_openai_compatible(raw_text: str, config: RuntimeAiConfig
         # monthly statement instead of allowing the JSON array to truncate.
         payload["temperature"] = 0.1
         payload["max_completion_tokens"] = 16384
+        if config.model in {"openai/gpt-oss-20b", "openai/gpt-oss-120b"}:
+            # This applies only to GPT-OSS requests sent through Groq. It does
+            # not change reasoning settings for any other provider or model.
+            payload["reasoning_effort"] = "low"
 
     try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=15.0)) as client:
@@ -206,7 +229,14 @@ async def _extract_with_openai_compatible(raw_text: str, config: RuntimeAiConfig
                 json=payload,
             )
         if response.is_error:
-            logger.warning("%s returned HTTP %s", config.provider, response.status_code)
+            if config.provider == "groq":
+                logger.warning(
+                    "groq returned HTTP %s: %s",
+                    response.status_code,
+                    _safe_groq_error_detail(response),
+                )
+            else:
+                logger.warning("%s returned HTTP %s", config.provider, response.status_code)
             raise AiProviderError(f"{config.provider} extraction request failed ({response.status_code}).")
 
         content = response.json()["choices"][0]["message"]["content"]

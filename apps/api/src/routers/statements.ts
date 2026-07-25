@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { router, protectedProcedure } from '../trpc/trpc.js';
-import { generateUploadUrl, buildStatementKey } from '../services/s3.service.js';
+import { generateUploadUrl, buildStatementKey, deleteStatementObject } from '../services/s3.service.js';
 import { enqueueParseJob } from '../services/queue.service.js';
 import { logAction } from '../services/audit.js';
 import { TRPCError } from '@trpc/server';
@@ -61,6 +61,7 @@ export const statementsRouter = router({
                 where: {
                     workspaceId: input.workspaceId,
                     month: input.month,
+                    deletedAt: null,
                 },
             });
 
@@ -76,6 +77,7 @@ export const statementsRouter = router({
                 const duplicate = await ctx.prisma.statement.findFirst({
                     where: {
                         fileHash: input.fileHash,
+                        deletedAt: null,
                         workspace: { userId: ctx.user.id },
                     },
                 });
@@ -127,6 +129,7 @@ export const statementsRouter = router({
                 const existingByHash = await ctx.prisma.statement.findFirst({
                     where: {
                         fileHash: input.fileHash,
+                        deletedAt: null,
                         workspace: { userId: ctx.user.id },
                     },
                 });
@@ -285,29 +288,44 @@ export const statementsRouter = router({
                 });
             }
 
-            // Soft-delete cascade (preserves records for audit trail)
-            await ctx.prisma.annotation.updateMany({
-                where: { transaction: { statementId: input.statementId } },
-                data: { deletedAt: new Date() },
-            });
-            await ctx.prisma.transaction.updateMany({
-                where: { statementId: input.statementId },
-                data: { deletedAt: new Date() },
-            });
-            await ctx.prisma.statement.update({
-                where: { id: input.statementId },
-                data: { deletedAt: new Date() },
-            });
+            try {
+                await deleteStatementObject(statement.s3Key);
+            } catch (error) {
+                console.error('[statements] S3 delete failed:', error);
+                throw new TRPCError({
+                    code: 'INTERNAL_SERVER_ERROR',
+                    message: 'Unable to remove the statement file. Please retry shortly.',
+                    cause: error,
+                });
+            }
 
-            await logAction({
-                userId: ctx.user.id,
-                entityType: 'Statement',
-                entityId: input.statementId,
-                action: 'DELETE',
-                oldValue: {
-                    month: statement.month,
-                    filename: statement.originalFilename,
-                },
+            // Statements are a deliberate exception to the application's
+            // soft-delete policy. Keep only this metadata-only audit event;
+            // the PDF, Statement, Transaction, and Annotation rows are gone.
+            await ctx.prisma.$transaction(async (tx) => {
+                await tx.annotation.deleteMany({
+                    where: { transaction: { statementId: statement.id } },
+                });
+                await tx.transaction.deleteMany({
+                    where: { statementId: statement.id },
+                });
+                await tx.statement.delete({ where: { id: statement.id } });
+                await tx.auditLog.create({
+                    data: {
+                        userId: ctx.user.id,
+                        entityType: 'Statement',
+                        entityId: statement.id,
+                        action: 'DELETE',
+                        oldValue: {
+                            month: statement.month,
+                            filename: statement.originalFilename,
+                            bankName: statement.bankName,
+                            parseStatus: statement.parseStatus,
+                            rowCount: statement.rowCount,
+                        },
+                        newValue: { sourceObjectDeleted: true },
+                    },
+                });
             });
 
             return { success: true };

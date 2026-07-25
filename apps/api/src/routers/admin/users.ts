@@ -112,13 +112,19 @@ export const adminUsersRouter = router({
                             statements: {
                                 take: 5,
                                 orderBy: { createdAt: 'desc' },
+                                where: { deletedAt: null },
                                 select: {
                                     id: true,
                                     month: true,
                                     bankName: true,
                                     parseStatus: true,
                                     createdAt: true,
-                                }
+                                },
+                            },
+                            _count: {
+                                select: {
+                                    statements: { where: { deletedAt: null } },
+                                },
                             }
                         }
                     },
@@ -141,18 +147,46 @@ export const adminUsersRouter = router({
             // Mask email by default
             const maskedEmail = user.email.replace(/(?<=.).(?=[^@]*?.@)/g, '*');
 
-            const supportTickets = await ctx.prisma.supportTicket.findMany({
-                where: { userId: input.id },
-                orderBy: { createdAt: 'desc' }
-            });
+            const [supportTickets, paystackTransactions, statementActivity, activeStatements] = await Promise.all([
+                ctx.prisma.supportTicket.findMany({
+                    where: { userId: input.id },
+                    orderBy: { createdAt: 'desc' },
+                }),
+                ctx.prisma.paystackTransaction.findMany({
+                    where: { userId: input.id },
+                    orderBy: { createdAt: 'desc' },
+                }),
+                ctx.prisma.auditLog.findMany({
+                    where: { userId: input.id, entityType: 'Statement' },
+                    orderBy: { createdAt: 'desc' },
+                    take: 100,
+                    select: {
+                        id: true,
+                        entityId: true,
+                        action: true,
+                        oldValue: true,
+                        newValue: true,
+                        createdAt: true,
+                    },
+                }),
+                ctx.prisma.statement.findMany({
+                    where: { workspace: { userId: input.id }, deletedAt: null },
+                    orderBy: { createdAt: 'desc' },
+                    select: {
+                        id: true,
+                        month: true,
+                        bankName: true,
+                        originalFilename: true,
+                        parseStatus: true,
+                        rowCount: true,
+                        createdAt: true,
+                        workspace: { select: { taxYear: true } },
+                    },
+                }),
+            ]);
             const openTicketCount = supportTickets.filter((ticket) =>
                 OPEN_TICKET_STATUSES.includes(ticket.status as typeof OPEN_TICKET_STATUSES[number])
             ).length;
-
-            const paystackTransactions = await ctx.prisma.paystackTransaction.findMany({
-                where: { userId: input.id },
-                orderBy: { createdAt: 'desc' }
-            });
 
             // Calculate overall totals
             const totalSpent = paystackTransactions
@@ -209,6 +243,24 @@ export const adminUsersRouter = router({
                     provider: a.provider,
                     type: a.type,
                 })),
+                statementActivity: statementActivity.map((event) => ({
+                    id: event.id,
+                    statementId: event.entityId,
+                    action: event.action,
+                    oldValue: event.oldValue,
+                    newValue: event.newValue,
+                    createdAt: event.createdAt.toISOString(),
+                })),
+                activeStatements: activeStatements.map((statement) => ({
+                    id: statement.id,
+                    taxYear: statement.workspace.taxYear,
+                    month: statement.month,
+                    bankName: statement.bankName,
+                    originalFilename: statement.originalFilename,
+                    parseStatus: statement.parseStatus,
+                    rowCount: statement.rowCount,
+                    createdAt: statement.createdAt.toISOString(),
+                })),
                 workspaces: user.workspaces.map((ws) => ({
                     id: ws.id,
                     taxYear: ws.taxYear,
@@ -217,6 +269,7 @@ export const adminUsersRouter = router({
                     statementCredits: ws.statementCredits,
                     reportGenerationCount: ws.reportGenerationCount,
                     createdAt: ws.createdAt.toISOString(),
+                    statementCount: ws._count.statements,
                     statements: ws.statements.map((s) => ({
                         id: s.id,
                         month: s.month,

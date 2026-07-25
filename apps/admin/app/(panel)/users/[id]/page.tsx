@@ -255,7 +255,7 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
 
       {/* Tabs */}
       <div style={{ display: "flex", gap: 0, borderBottom: "1px solid var(--admin-border)" }}>
-        {["User Profile", "Transactions", "Support Tickets", "Message Log"].map((tab) => (
+        {["User Profile", "Statements", "Transactions", "Support Tickets", "Message Log"].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -335,7 +335,7 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
                             </span>
                           </div>
                           <p style={{ fontSize: 12, color: "var(--admin-text-muted)", margin: "4px 0 0" }}>
-                            {ws.statements.length} Statements Uploaded &middot; {ws.reportGenerationCount || 0} Reports Generated
+                            {ws.statementCount} Active Statements &middot; {ws.reportGenerationCount || 0} Reports Generated
                           </p>
                         </div>
                       </div>
@@ -445,6 +445,97 @@ export default function UserDetailsPage({ params }: { params: Promise<{ id: stri
               </div>
             </div>
           </div>
+      )}
+
+      {activeTab === "Statements" && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          <div className="admin-card">
+            <h3 className="admin-card-title" style={{ marginBottom: 8 }}>Statements</h3>
+            <p style={{ margin: 0, fontSize: 13, color: "var(--admin-text-muted)" }}>
+              Active statements remain available to the user. Deleted entries retain only audit metadata; their PDF and extracted transaction data have been permanently removed.
+            </p>
+          </div>
+
+          <div className="admin-card" style={{ padding: 0, overflow: "hidden" }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--admin-border)" }}>
+              <h3 style={{ margin: 0, fontSize: 15, color: "var(--admin-text)" }}>Current active statements</h3>
+            </div>
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>File</th>
+                  <th>Tax year</th>
+                  <th>Month</th>
+                  <th>Status</th>
+                  <th>Uploaded</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!user.activeStatements || user.activeStatements.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: "center", padding: 32, color: "var(--admin-text-muted)" }}>
+                      No active statements.
+                    </td>
+                  </tr>
+                ) : (
+                  user.activeStatements.map((statement: any) => (
+                    <tr key={statement.id}>
+                      <td style={{ fontWeight: 600 }}>{statement.originalFilename}</td>
+                      <td>{statement.taxYear}</td>
+                      <td>{new Date(2000, statement.month - 1, 1).toLocaleString("en-NG", { month: "long" })}</td>
+                      <td><span className="admin-badge admin-badge--dim">{statement.parseStatus}</span></td>
+                      <td>{new Date(statement.createdAt).toLocaleString("en-NG")}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="admin-card" style={{ padding: 0, overflow: "hidden" }}>
+            <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--admin-border)" }}>
+              <h3 style={{ margin: 0, fontSize: 15, color: "var(--admin-text)" }}>Audit history</h3>
+            </div>
+            <table className="admin-table">
+              <thead>
+                <tr>
+                  <th>Event</th>
+                  <th>File</th>
+                  <th>Month</th>
+                  <th>Processing state</th>
+                  <th>When</th>
+                </tr>
+              </thead>
+              <tbody>
+                {!user.statementActivity || user.statementActivity.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: "center", padding: 40, color: "var(--admin-text-muted)" }}>
+                      No statement audit events have been recorded for this user yet.
+                    </td>
+                  </tr>
+                ) : (
+                  user.statementActivity.map((event: any) => {
+                    const details = event.oldValue || event.newValue || {};
+                    const wasDeleted = event.action === "DELETE";
+                    return (
+                      <tr key={event.id}>
+                        <td>
+                          <span className={`admin-badge ${wasDeleted ? "admin-badge--danger" : "admin-badge--success"}`}>
+                            {wasDeleted ? "DELETED" : event.action}
+                          </span>
+                        </td>
+                        <td style={{ fontWeight: 600 }}>{details.filename || "Statement"}</td>
+                        <td>{details.month ? new Date(2000, details.month - 1, 1).toLocaleString("en-NG", { month: "long" }) : "—"}</td>
+                        <td>{details.parseStatus || (wasDeleted ? "Removed" : "Uploaded")}</td>
+                        <td>{new Date(event.createdAt).toLocaleString("en-NG")}</td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
       {activeTab === "Transactions" && (

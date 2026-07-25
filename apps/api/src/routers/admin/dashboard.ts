@@ -30,8 +30,8 @@ export const adminDashboardRouter = router({
             ctx.prisma.user.count({ where: { createdAt: { lt: thirtyDaysAgo } } }),
             ctx.prisma.workspace.count({ where: { isUnlocked: true } }),
             ctx.prisma.workspace.count({ where: { isUnlocked: true, createdAt: { lt: thirtyDaysAgo } } }), // Approximation
-            ctx.prisma.statement.count({ where: { parseStatus: 'READY' } }),
-            ctx.prisma.statement.count({ where: { parseStatus: 'READY', updatedAt: { lt: thirtyDaysAgo } } }),
+            ctx.prisma.statement.count({ where: { parseStatus: 'READY', deletedAt: null } }),
+            ctx.prisma.statement.count({ where: { parseStatus: 'READY', deletedAt: null, updatedAt: { lt: thirtyDaysAgo } } }),
             ctx.prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] } } }),
             ctx.prisma.supportTicket.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS'] }, createdAt: { lt: thirtyDaysAgo } } }),
             ctx.prisma.paystackTransaction.aggregate({ _sum: { amount: true }, where: { status: 'success' } }),

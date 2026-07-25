@@ -1,4 +1,4 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // ─── S3 Client Singleton ─────────────────────────────────
@@ -45,6 +45,14 @@ export async function generateDownloadUrl(key: string): Promise<string> {
     });
 
     return getSignedUrl(s3, command, { expiresIn: URL_EXPIRY });
+}
+
+/** Permanently remove a statement source object. S3 DELETE is idempotent. */
+export async function deleteStatementObject(key: string): Promise<void> {
+    await s3.send(new DeleteObjectCommand({
+        Bucket: BUCKET,
+        Key: key,
+    }));
 }
 
 /**
